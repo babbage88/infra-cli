@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
+	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -49,5 +52,87 @@ func writeToEnvFile(filename, key, value string) {
 	_, err = f.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 	if err != nil {
 		fmt.Println("Error writing to .env file:", err)
+	}
+}
+
+// writeToYAML writes a key-value pair to a YAML file.
+func writeToYAML(filename, key, value string) {
+	data := make(map[string]string)
+
+	// Read existing file if it exists
+	if file, err := os.ReadFile(filename); err == nil {
+		yaml.Unmarshal(file, &data)
+	}
+
+	// Update or add the key-value pair
+	data[key] = value
+
+	// Write back to file
+	file, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Error writing to YAML file:", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := yaml.NewEncoder(file)
+	defer encoder.Close()
+
+	if err := encoder.Encode(data); err != nil {
+		fmt.Println("Error encoding YAML:", err)
+	}
+}
+
+// writeToJSON writes a key-value pair to a JSON file.
+func writeToJSON(filename, key, value string) {
+	data := make(map[string]string)
+
+	// Read existing file if it exists
+	if file, err := os.ReadFile(filename); err == nil {
+		json.Unmarshal(file, &data)
+	}
+
+	// Update or add the key-value pair
+	data[key] = value
+
+	// Write back to file
+	file, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Error writing to JSON file:", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ") // Pretty-print JSON
+
+	if err := encoder.Encode(data); err != nil {
+		fmt.Println("Error encoding JSON:", err)
+	}
+}
+
+// writeToTOML writes a key-value pair to a TOML file.
+func writeToTOML(filename, key, value string) {
+	data := make(map[string]string)
+
+	// Read existing file if it exists
+	if file, err := os.ReadFile(filename); err == nil {
+		toml.Unmarshal(file, &data)
+	}
+
+	// Update or add the key-value pair
+	data[key] = value
+
+	// Write back to file
+	file, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Error writing to TOML file:", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := toml.NewEncoder(file)
+	if err := encoder.Encode(data); err != nil {
+		fmt.Println("Error encoding TOML:", err)
 	}
 }
