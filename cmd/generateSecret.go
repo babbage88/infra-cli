@@ -34,11 +34,11 @@ var generateCmd = &cobra.Command{
 		}
 
 		if jsonFile != "" {
-			writeToJSON(yamlFile, jwtKeyName, secretStr)
+			writeToJSON(jsonFile, jwtKeyName, secretStr)
 		}
 
 		if tomlFile != "" {
-			writeToTOML(yamlFile, jwtKeyName, secretStr)
+			writeToTOML(tomlFile, jwtKeyName, secretStr)
 		}
 
 	},
