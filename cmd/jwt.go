@@ -12,6 +12,9 @@ var jwtCmd = &cobra.Command{
 
 var (
 	envFile      string
+	yamlFile     string
+	jsonFile     string
+	tomlFile     string
 	jwtKeyName   string
 	jwtTokenName string
 )
