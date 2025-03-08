@@ -3,16 +3,17 @@ module github.com/babbage88/infra-cli
 go 1.24.0
 
 require (
+	github.com/BurntSushi/toml v1.4.0
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/go-git/go-git/v5 v5.14.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
-	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
 	github.com/cloudflare/circl v1.6.0 // indirect
@@ -52,5 +53,4 @@ require (
 	golang.org/x/time v0.9.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
