@@ -33,7 +33,7 @@ var generateCmd = &cobra.Command{
 var envFile string
 
 func init() {
-	generateCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Write secret to .env file")
+	generateCmd.Flags().StringVarP(&envFile, "output-env-file", "e", "", "Write secret to .env file")
 	jwtCmd.AddCommand(generateCmd)
 }
 

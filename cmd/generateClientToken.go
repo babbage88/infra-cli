@@ -36,6 +36,6 @@ var newClientTokenCmd = &cobra.Command{
 func init() {
 	newClientTokenCmd.Flags().StringVarP(&secret, "secret", "s", "", "Secret key for signing the JWT")
 	newClientTokenCmd.MarkFlagRequired("secret")
-	newClientTokenCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Write token to .env file")
+	newClientTokenCmd.Flags().StringVarP(&envFile, "output-env-file", "o", "", "Write token to .env file")
 	jwtCmd.AddCommand(newClientTokenCmd)
 }
