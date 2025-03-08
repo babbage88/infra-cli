@@ -31,6 +31,18 @@ var newClientTokenCmd = &cobra.Command{
 		if envFile != "" {
 			writeToEnvFile(envFile, jwtTokenName, tokenString)
 		}
+
+		if yamlFile != "" {
+			writeToYAML(yamlFile, jwtTokenName, tokenString)
+		}
+
+		if jsonFile != "" {
+			writeToYAML(yamlFile, jwtTokenName, tokenString)
+		}
+
+		if tomlFile != "" {
+			writeToYAML(yamlFile, jwtTokenName, tokenString)
+		}
 	},
 }
 
