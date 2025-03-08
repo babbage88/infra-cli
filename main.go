@@ -5,8 +5,11 @@ import (
 	"os"
 
 	"github.com/babbage88/infra-cli/cmd"
+	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/spf13/viper"
 )
+
+var logger = pretty.NewCustomLogger(os.Stdout, "DEBUG", 1, "|", true)
 
 func main() {
 	// Initialize Viper

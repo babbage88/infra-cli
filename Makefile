@@ -1,4 +1,4 @@
-GHCR_REPO:=ghcr.io/babbage88/goinfacli:
+GHCR_REPO:=ghcr.io/babbage88/infractl:
 BIN_NAME:=goinfracli
 MAIN_BRANCH:=master
 VERSION_TYPE:=patch
@@ -71,7 +71,4 @@ buildandpush: check-builder
 	docker buildx use goinfaclibuilder
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(GHCR_REPO)$(tag) . --push
 
-deploydev: buildandpushdev
-	kubectl apply -f deployment/kubernetes/infra-goinfacli.yaml
-	kubectl rollout restart deployment infra-goinfacli
 

@@ -207,7 +207,7 @@ func PrintError(s ...any) {
 	fmt.Printf("\x1b[1;%dm%s\x1b[0m\n", errColor, s)
 }
 
-func PrettyErrorLogString(format string, a ...any) string {
+func PrettyErrorLogF(format string, a ...any) string {
 	fmtString := fmt.Sprintf(format, a...)
 
 	const (

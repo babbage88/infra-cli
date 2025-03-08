@@ -3,13 +3,10 @@ package cloudflare_utils
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/cloudflare/cloudflare-go"
 )
-
-var logger = pretty.NewCustomLogger(os.Stdout, "DEBUG", 1, "|", true)
 
 type CloudflareCommandUtils struct {
 	ZomeId    string          `json:"zoneId" yaml:"zoneId"`
@@ -61,7 +58,7 @@ func createOrUpdateCloudflareDnsRecord[T DnsRequestHandler](api cloudflare.API, 
 		record, err = api.UpdateDNSRecord(context.Background(), cloudflare.ZoneIdentifier(zoneId), v)
 		if err != nil {
 			msg := fmt.Sprintf("Error updating DNS record %s in Zone: %s err: %s", v.ID, zoneId, err.Error())
-			logger.Error(msg)
+			pretty.PrettyLogErrorString(msg)
 			return record, err
 		}
 		return record, err
@@ -69,7 +66,7 @@ func createOrUpdateCloudflareDnsRecord[T DnsRequestHandler](api cloudflare.API, 
 		record, err = api.CreateDNSRecord(context.Background(), cloudflare.ZoneIdentifier(zoneId), v)
 		if err != nil {
 			msg := fmt.Sprintf("Error updating DNS record %s in Zone: %s err: %s", v.Name, zoneId, err.Error())
-			logger.Error(msg)
+			pretty.PrettyLogErrorString(msg)
 			return record, err
 		}
 	default:

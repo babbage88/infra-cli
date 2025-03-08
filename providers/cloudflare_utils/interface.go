@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/cloudflare/cloudflare-go"
 )
 
@@ -15,7 +16,7 @@ func NewCloudflareAPIClient(token string) (*cloudflare.API, error) {
 	api, err := cloudflare.NewWithAPIToken(token)
 	if err != nil {
 		msg := fmt.Sprintf("Error initializing lodflaref api client. Verify token. %s", err)
-		logger.Error(msg)
+		pretty.PrettyLogErrorString(msg)
 		return api, err
 	}
 
@@ -36,7 +37,7 @@ func CreateOrUpdateCloudflareDnsRecord[T DnsRequestHandler](token string, zoneId
 		record, err = api.CreateDNSRecord(context.Background(), cloudflare.ZoneIdentifier(zoneId), v)
 		if err != nil {
 			msg := fmt.Sprintf("Error updating dns record %s", err)
-			logger.Error(msg)
+			pretty.PrettyLogErrorString(msg)
 			return record, err
 		}
 	default:
