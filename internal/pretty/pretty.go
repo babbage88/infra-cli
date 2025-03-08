@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	batchv1 "k8s.io/api/batch/v1"
 )
 
 type PrettyPrintOption func(p *prettyPrinter)
@@ -252,20 +250,6 @@ func DateTimeSting(t time.Time) string {
 		t.Year(), t.Month(), t.Day(),
 		t.Hour(), t.Minute(), t.Second())
 	return dateTimeString
-}
-
-func PrettyPrintK8sJob(jobsList *batchv1.JobList) {
-	// Debug output of job statuses
-	for _, j := range jobsList.Items {
-		fmt.Println()
-		response, err := json.MarshalIndent(j.Status, "", "  ")
-		if err != nil {
-			PrintErrorf("Error marshaling response: %s", err.Error())
-			continue
-		}
-		Print(string(response))
-		fmt.Println()
-	}
 }
 
 func PrettyPrintJson(data []byte) {

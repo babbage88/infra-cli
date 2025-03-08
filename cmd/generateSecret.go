@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var generateCmd = &cobra.Command{
@@ -25,15 +26,30 @@ var generateCmd = &cobra.Command{
 
 		// Write to .env if specified
 		if envFile != "" {
-			writeToEnvFile(envFile, "JWT_KEY", secretStr)
+			writeToEnvFile(envFile, jwtKeyName, secretStr)
 		}
 	},
 }
 
-var envFile string
+var (
+	envFile    string
+	jwtKeyName string
+)
 
 func init() {
-	generateCmd.Flags().StringVarP(&envFile, "output-env-file", "e", "", "Write secret to .env file")
+	// Default values from config or CLI flags
+	generateCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Write secret to .env file")
+	generateCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
+
+	// Bind Viper config
+	viper.SetDefault("jwt_key_name", "JWT_KEY")
+	viper.BindPFlag("jwt_key_name", generateCmd.Flags().Lookup("jwt-key-name"))
+
+	// Read Viper config before execution
+	cobra.OnInitialize(func() {
+		jwtKeyName = viper.GetString("jwt_key_name")
+	})
+
 	jwtCmd.AddCommand(generateCmd)
 }
 
