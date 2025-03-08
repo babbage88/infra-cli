@@ -47,8 +47,8 @@ var generateCmd = &cobra.Command{
 func init() {
 	// Default values from config or CLI flags
 	generateCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write secret to .yaml file")
-	generateCmd.Flags().StringVarP(&yamlFile, "output-json-file", "j", "", "Write secret to .json file")
-	generateCmd.Flags().StringVarP(&yamlFile, "output-toml-file", "t", "", "Write secret to .toml file")
+	generateCmd.Flags().StringVarP(&jsonFile, "output-json-file", "j", "", "Write secret to .json file")
+	generateCmd.Flags().StringVarP(&tomlFile, "output-toml-file", "t", "", "Write secret to .toml file")
 	generateCmd.Flags().StringVarP(&envFile, "output-env-file", "e", "", "Write secret to .env file")
 	generateCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
 	generateCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")

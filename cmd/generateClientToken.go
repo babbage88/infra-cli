@@ -37,11 +37,18 @@ var newClientTokenCmd = &cobra.Command{
 func init() {
 	newClientTokenCmd.Flags().StringVarP(&secret, "secret", "s", "", "Secret key for signing the JWT")
 	newClientTokenCmd.Flags().StringVarP(&envFile, "output-env-file", "o", "", "Write token to .env file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write secret to .yaml file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-json-file", "j", "", "Write secret to .json file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-toml-file", "t", "", "Write secret to .toml file")
 	newClientTokenCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
 	newClientTokenCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")
 
-	viper.BindPFlag("jwt_key_name", generateCmd.Flags().Lookup("jwt-key-name"))
-	viper.BindPFlag("jwt_token_name", generateCmd.Flags().Lookup("jwt-token-name"))
-	viper.BindPFlag("jwt_token", generateCmd.Flags().Lookup("secret"))
+	viper.BindPFlag("jwt_key_name", newClientTokenCmd.Flags().Lookup("jwt-key-name"))
+	viper.BindPFlag("jwt_token_name", newClientTokenCmd.Flags().Lookup("jwt-token-name"))
+	viper.BindPFlag("jwt_token", newClientTokenCmd.Flags().Lookup("secret"))
+	viper.BindPFlag("output_yaml_file", newClientTokenCmd.Flags().Lookup("output-yaml-file"))
+	viper.BindPFlag("output_json_file", newClientTokenCmd.Flags().Lookup("output-json-file"))
+	viper.BindPFlag("output_toml_file", newClientTokenCmd.Flags().Lookup("output-toml-file"))
+
 	jwtCmd.AddCommand(newClientTokenCmd)
 }
