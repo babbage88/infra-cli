@@ -37,9 +37,9 @@ var newClientTokenCmd = &cobra.Command{
 func init() {
 	newClientTokenCmd.Flags().StringVarP(&secret, "secret", "s", "", "Secret key for signing the JWT")
 	newClientTokenCmd.Flags().StringVarP(&envFile, "output-env-file", "o", "", "Write token to .env file")
-	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write secret to .yaml file")
-	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-json-file", "j", "", "Write secret to .json file")
-	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-toml-file", "t", "", "Write secret to .toml file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write token to .yaml file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-json-file", "j", "", "Write token to .json file")
+	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-toml-file", "t", "", "Write token to .toml file")
 	newClientTokenCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
 	newClientTokenCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")
 
