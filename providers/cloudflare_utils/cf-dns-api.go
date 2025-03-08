@@ -2,7 +2,6 @@ package cloudflare_utils
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 
@@ -13,17 +12,14 @@ import (
 var logger = pretty.NewCustomLogger(os.Stdout, "DEBUG", 1, "|", true)
 
 type CloudflareCommandUtils struct {
-	ZomeId    string          `json:"zoneId"`
-	ZoneName  string          `json:"zoneName"`
-	EnvFile   string          `json:"envFile"`
-	Error     error           `json:"error"`
-	ApiClient *cloudflare.API `json:"clouflareApi"`
-	DbConn    *sql.DB         `json:"db"`
-	UseEnv    bool            `json:"useEnv"`
+	ZomeId    string          `json:"zoneId" yaml:"zoneId"`
+	ZoneName  string          `json:"zoneName" yaml:"zoneName"`
+	Error     error           `json:"error" yaml:"error"`
+	ApiClient *cloudflare.API `json:"clouflareApi" yaml:"cloudflareApi"`
 }
 
 func NewCloudflareCommand(token string, domainName string) *CloudflareCommandUtils {
-	cfcmd := &CloudflareCommandUtils{UseEnv: false, ZoneName: domainName}
+	cfcmd := &CloudflareCommandUtils{ZoneName: domainName}
 	cfcmd.NewApiClientFromToken(token)
 	if cfcmd.Error == nil {
 		cfcmd.ZomeId, cfcmd.Error = cfcmd.ApiClient.ZoneIDByName(domainName)
