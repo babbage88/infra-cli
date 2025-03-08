@@ -31,38 +31,23 @@ var generateCmd = &cobra.Command{
 	},
 }
 
-var (
-	envFile    string
-	jwtKeyName string
-)
-
 func init() {
 	// Default values from config or CLI flags
-	generateCmd.Flags().StringVarP(&envFile, "env-file", "e", "", "Write secret to .env file")
+	generateCmd.Flags().StringVarP(&envFile, "output-env-file", "e", "", "Write secret to .env file")
 	generateCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
+	generateCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")
 
 	// Bind Viper config
 	viper.SetDefault("jwt_key_name", "JWT_KEY")
+	viper.SetDefault("jwt_token_name", "JWT_AUTH_TOKEN")
 	viper.BindPFlag("jwt_key_name", generateCmd.Flags().Lookup("jwt-key-name"))
+	viper.BindPFlag("jwt_token_name", generateCmd.Flags().Lookup("jwt-token-name"))
 
 	// Read Viper config before execution
 	cobra.OnInitialize(func() {
 		jwtKeyName = viper.GetString("jwt_key_name")
+		jwtTokenName = viper.GetString("jwt_token_name")
 	})
 
 	jwtCmd.AddCommand(generateCmd)
-}
-
-func writeToEnvFile(filename, key, value string) {
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Println("Error writing to .env file:", err)
-		return
-	}
-	defer f.Close()
-
-	_, err = f.WriteString(fmt.Sprintf("%s=%s\n", key, value))
-	if err != nil {
-		fmt.Println("Error writing to .env file:", err)
-	}
 }

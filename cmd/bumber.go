@@ -6,31 +6,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var bumberCmd = &cobra.Command{
+var bumperCmd = &cobra.Command{
 	Use:   "bumper",
 	Short: "Generate the next version number/tag",
-	Long: `Utility to geneate the next iterates a given semver version based on the release type 
-lgtm-guard: static analysis to prevent tokens being push to public repositories.
+	Long: `Utility to generate the next semver version based on the release type.
 
-Currently being called from a Makefile target named "release"
+Currently being called from a Makefile target named "release".
 `,
 	Run: func(cmd *cobra.Command, args []string) {
+		currentTag, _ := cmd.Flags().GetString("latest-version")
+		incrementType, _ := cmd.Flags().GetString("increment-type")
+
 		_, err := bumper.BumpVersion(currentTag, incrementType)
 		if err != nil {
-			pretty.PrettyErrorLogF("Error generated the next version number. Latest Tag: %s error: %s", currentTag, err.Error())
+			pretty.PrettyErrorLogF("Error generating the next version number. Latest Tag: %s error: %s", currentTag, err.Error())
 		}
 	},
 }
 
-var (
-	currentTag    string
-	incrementType string
-)
-
 func init() {
-	cicdCmd.AddCommand(bumberCmd)
-	// Default values from config or CLI flags
-	generateCmd.Flags().StringVarP(&currentTag, "latest-version", "l", "", "The version number to analyze.")
-	generateCmd.Flags().StringVarP(&incrementType, "increment-type", "i", "patch", "What type of release eg: major, minor, patch")
+	cicdCmd.AddCommand(bumperCmd)
 
+	// Add flags to the bumperCmd, not global variables
+	bumperCmd.Flags().StringP("latest-version", "l", "", "The version number to analyze.")
+	bumperCmd.Flags().StringP("increment-type", "i", "patch", "What type of release eg: major, minor, patch")
 }

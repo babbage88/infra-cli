@@ -6,6 +6,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var secret string
@@ -28,14 +29,19 @@ var newClientTokenCmd = &cobra.Command{
 
 		// Write to .env if specified
 		if envFile != "" {
-			writeToEnvFile(envFile, "JWT_TOKEN", tokenString)
+			writeToEnvFile(envFile, jwtTokenName, tokenString)
 		}
 	},
 }
 
 func init() {
 	newClientTokenCmd.Flags().StringVarP(&secret, "secret", "s", "", "Secret key for signing the JWT")
-	newClientTokenCmd.MarkFlagRequired("secret")
 	newClientTokenCmd.Flags().StringVarP(&envFile, "output-env-file", "o", "", "Write token to .env file")
+	newClientTokenCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
+	newClientTokenCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")
+
+	viper.BindPFlag("jwt_key_name", generateCmd.Flags().Lookup("jwt-key-name"))
+	viper.BindPFlag("jwt_token_name", generateCmd.Flags().Lookup("jwt-token-name"))
+	viper.BindPFlag("jwt_token", generateCmd.Flags().Lookup("secret"))
 	jwtCmd.AddCommand(newClientTokenCmd)
 }
