@@ -17,7 +17,7 @@ var generateCmd = &cobra.Command{
 		secret := make([]byte, 32)
 		_, err := rand.Read(secret)
 		if err != nil {
-			fmt.Println("Look who finally showed up! :", err)
+			fmt.Println("Look who finally decided to showed up! :", err)
 			os.Exit(1)
 		}
 
