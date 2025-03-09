@@ -1,0 +1,17 @@
+---
+trahan.dev:
+  - name: api
+    content: 172.16.99.4
+    type: A
+    ttl: 120
+    proxied: false
+    comment: Test record creation
+  - name: exupdate
+    id: fgjiiuhgf245578938
+    content: 192.168.99.88
+    type: A
+    ttl: 120
+    comment: Update record example
+    tags:
+      - dev
+      - internal

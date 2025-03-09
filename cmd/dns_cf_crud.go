@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var recordFile string
-var dnsRecord cloudflare.CreateDNSRecordParams
+var (
+	recordFile string
+	dnsRecord  DnsRecord
+)
 
 var createCmd = &cobra.Command{
 	Use:   "create",
@@ -32,21 +33,15 @@ var createCmd = &cobra.Command{
 		// Override YAML values with command-line flags
 		overrideFlags(cmd)
 
-		// Validate required fields
-		if dnsRecord.ZoneID == "" || dnsRecord.Name == "" || dnsRecord.Type == "" || dnsRecord.Content == "" {
-			return fmt.Errorf("zone-id, record-name, record-type, and content are required")
-		}
-
 		// Execute creation logic
-		fmt.Printf("Creating DNS Record: %+v\n", dnsRecord)
+		fmt.Printf("Creating DNS Records: %+v\n", dnsRecord)
 		return nil
 	},
 }
 
 func init() {
 	dnsCmd.AddCommand(createCmd)
-
-	createCmd.Flags().StringVar(&recordFile, "file", "", "Path to DNS record YAML file")
+	createCmd.Flags().StringVar(&recordFile, "file", "dnsRecords.yaml", "Path to YAML file that contains the new record details.")
 	createCmd.Flags().String("zone-id", "", "Cloudflare Zone ID")
 	createCmd.Flags().String("record-name", "", "DNS Record Name")
 	createCmd.Flags().String("record-type", "", "DNS Record Type")
@@ -69,9 +64,6 @@ func init() {
 
 // overrideFlags ensures command-line flag values take precedence over YAML file values
 func overrideFlags(cmd *cobra.Command) {
-	if cmd.Flags().Changed("zone-id") {
-		dnsRecord.ZoneID, _ = cmd.Flags().GetString("zone-id")
-	}
 	if cmd.Flags().Changed("record-name") {
 		dnsRecord.Name, _ = cmd.Flags().GetString("record-name")
 	}
@@ -88,9 +80,15 @@ func overrideFlags(cmd *cobra.Command) {
 		dnsRecord.Proxied, _ = cmd.Flags().GetBool("proxied")
 	}
 	if cmd.Flags().Changed("priority") {
-		dnsRecord.Priority, _ = cmd.Flags().GetString("priority")
+		ptr, _ := cmd.Flags().GetUint16("priority")
+		dnsRecord.Priority = &ptr
 	}
 	if cmd.Flags().Changed("comment") {
 		dnsRecord.Comment, _ = cmd.Flags().GetString("comment")
 	}
+}
+
+func WhereAmI(param any) *any {
+	ptr := &param
+	return ptr
 }
