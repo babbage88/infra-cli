@@ -11,16 +11,16 @@ type DnsRecordModRequest struct {
 }
 
 type DnsRecord struct {
-	ZoneName string    `yaml:"zone_name" json:"zone_name"`
-	Name     string    `yaml:"name" json:"name"`
-	Content  string    `yaml:"content" json:"content"`
-	Type     string    `yaml:"type" json:"type"`
-	TTL      int       `yaml:"ttl" json:"ttl"`
-	Proxied  bool      `yaml:"proxied" json:"proxied"`
-	Comment  string    `yaml:"comment" json:"comment"`
-	Tags     []string  `yaml:"tags" json:"tags"`
-	Modified time.Time `yaml:"modified" json:"modified"`
-	Created  time.Time `yaml:"created" json:"created"`
+	ZoneName   string    `yaml:"zone_name" json:"zone_name"`
+	Name       string    `yaml:"name" json:"name"`
+	Content    string    `yaml:"content" json:"content"`
+	Type       string    `yaml:"type" json:"type"`
+	TTL        int       `yaml:"ttl" json:"ttl"`
+	Proxied    bool      `yaml:"proxied" json:"proxied"`
+	Comment    string    `yaml:"comment" json:"comment"`
+	Tags       []string  `yaml:"tags" json:"tags"`
+	ModifiedOn time.Time `yaml:"modified" json:"modified"`
+	CreatedOn  time.Time `yaml:"created" json:"created"`
 }
 
 func (cr *DnsRecord) ParseToCloudflareCreateParam() *cloudflare.CreateDNSRecordParams {
@@ -32,8 +32,8 @@ func (cr *DnsRecord) ParseToCloudflareCreateParam() *cloudflare.CreateDNSRecordP
 		Proxied:    &cr.Proxied,
 		Comment:    cr.Comment,
 		Tags:       cr.Tags,
-		ModifiedOn: cr.Modified,
-		CreatedOn:  cr.Created,
+		ModifiedOn: cr.ModifiedOn,
+		CreatedOn:  cr.CreatedOn,
 	}
 
 	return cfreq
