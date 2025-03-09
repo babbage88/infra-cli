@@ -12,7 +12,9 @@ import (
 )
 
 var (
-	jwtSecret string
+	jwtAuthToken string
+	cfgFile      string
+	apiTokens    map[string]string
 )
 
 var rootCmd = &cobra.Command{
@@ -30,15 +32,52 @@ func Execute() {
 
 func init() {
 	// Load default config values
-	rootCmd.PersistentFlags().String("cfapitoken", viper.GetString("cfapitoken"), "Cloudflare API Token")
-	viper.BindPFlag("cfapitoken", rootCmd.PersistentFlags().Lookup("cfapitoken"))
+	apiTokens = make(map[string]string)
+
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
+		"Config file (default is config.yaml)")
+	rootCmd.PersistentFlags().StringToStringVar(&apiTokens, "api-tokens", nil,
+		"A string map to store API tokens use provider name as key. eg: api-tokens coudflare='token123'")
+	rootCmd.PersistentFlags().StringVar(&jwtAuthToken, "auth-token", "",
+		"JWT Token for authentication with both manager or external WebAPIs")
+
+	viper.SetDefault("api_tokens", viper.GetStringMapString("api_tokens"))
+	viper.BindPFlag("api_tokens", cloudflareCmd.PersistentFlags().Lookup("api-token"))
+	viper.SetDefault("auth_token", viper.GetString("auth_token"))
+	viper.BindPFlag("auth_token", cloudflareCmd.PersistentFlags().Lookup("auth-token"))
+	viper.SetEnvPrefix("CF") // CF_API_TOKEN
+	viper.AutomaticEnv()
+
 	// Read Viper config before execution
 	cobra.OnInitialize(func() {
+		initConfig()
 		jwtKeyName = viper.GetString("jwt_key_name")
 		jwtTokenName = viper.GetString("jwt_token_name")
-		jwtSecret = viper.GetString("jwt_secret")
+		jwtAuthToken = viper.GetString("jwt_secret")
 	})
 
+}
+
+func initConfig() {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+	}
+
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to read config file: %v\n", err)
+	}
+
+	if apiTokens == nil {
+		apiTokens = viper.GetStringMapString("api_tokens")
+	}
+
+	if jwtAuthToken == "" {
+		jwtAuthToken = viper.GetString("auth_token")
+	}
 }
 
 func writeToEnvFile(filename, key, value string) {
