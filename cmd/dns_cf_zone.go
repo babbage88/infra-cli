@@ -46,7 +46,7 @@ func getZoneIdCmd(token string, zoneName string) error {
 }
 
 func printDnsAndZoneIdTable(domain string, zoneId string) error {
-	tw := tabwriter.NewWriter(os.Stdout, 5, 0, 1, ' ', tabwriter.AlignRight)
+	tw := tabwriter.NewWriter(os.Stdout, 5, 0, 1, ' ', tabwriter.TabIndent)
 	fmt.Fprintln(tw, "DomainName\t\tZoneID")
 	fmt.Fprintln(tw, "----------\t\t------")
 	fmt.Fprintf(tw, "%s\t\t%s\n", domain, zoneId)
