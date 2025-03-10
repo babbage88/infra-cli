@@ -29,7 +29,15 @@ var zoneCmd = &cobra.Command{
 func init() {
 	cloudflareCmd.AddCommand(zoneCmd)
 	zoneCmd.PersistentFlags().String("zone-name", viper.GetString("domain_name"), "DNS Zone Name to fetch ID for.")
+	// Default values from config or CLI flags
+	zoneCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write secret to .yaml file")
+	zoneCmd.Flags().StringVarP(&jsonFile, "output-json-file", "j", "", "Write secret to .json file")
+	zoneCmd.Flags().StringVarP(&tomlFile, "output-toml-file", "t", "", "Write secret to .toml file")
+	zoneCmd.Flags().StringVarP(&envFile, "output-env-file", "e", "", "Write secret to .env file")
 	viper.BindPFlag("zone_name", zoneCmd.PersistentFlags().Lookup("zone-name"))
+	viper.BindPFlag("output_yaml_file", zoneCmd.Flags().Lookup("output-yaml-file"))
+	viper.BindPFlag("output_json_file", zoneCmd.Flags().Lookup("output-json-file"))
+	viper.BindPFlag("output_toml_file", zoneCmd.Flags().Lookup("output-toml-file"))
 }
 
 func getZoneIdCmd(token string, zoneName string) error {
@@ -45,6 +53,7 @@ func getZoneIdCmd(token string, zoneName string) error {
 		prettyPrintZoneIdTable(zoneName, zoneId)
 	}
 
+	outputToFile(zoneName, zoneId)
 	return nil
 }
 

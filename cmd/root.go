@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -182,5 +183,27 @@ func writeToTOML(filename, key, value string) {
 	encoder := toml.NewEncoder(file)
 	if err := encoder.Encode(data); err != nil {
 		fmt.Println("Error encoding TOML:", err)
+	}
+}
+
+func outputToFile(key, value string) {
+	if envFile != "" {
+		pretty.Printf("Creating file: %s", envFile)
+		writeToEnvFile(envFile, key, value)
+	}
+
+	if yamlFile != "" {
+		pretty.Printf("Creating file: %s", yamlFile)
+		writeToYAML(yamlFile, key, value)
+	}
+
+	if jsonFile != "" {
+		pretty.Printf("Creating file: %s", jsonFile)
+		writeToJSON(jsonFile, key, value)
+	}
+
+	if tomlFile != "" {
+		pretty.Printf("Creating file: %s", tomlFile)
+		writeToTOML(tomlFile, key, value)
 	}
 }
