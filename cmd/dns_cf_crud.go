@@ -1,45 +1,27 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var (
-	recordFile string
-	dnsRecord  DnsRecord
-)
+var dnsRecord DnsRecord
 
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create Cloudflare DNS records",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Load from YAML if provided
-		if recordFile != "" {
-			viper.SetConfigFile(recordFile)
-			if err := viper.ReadInConfig(); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to read record file: %v\n", err)
-				return err
-			}
-			if err := viper.Unmarshal(&dnsRecord); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to parse YAML: %v\n", err)
-				return err
-			}
-		}
-
 		// Override YAML values with command-line flags
 		overrideFlags(cmd)
 
 		// Execute creation logic
-		fmt.Printf("Creating DNS Records: %+v\n", dnsRecord)
 		return nil
 	},
 }
 
 func init() {
+	var recordFile string
+	// newDnsRecord DnsRecord
 	dnsCmd.AddCommand(createCmd)
 	createCmd.Flags().StringVar(&recordFile, "file", "dnsRecords.yaml", "Path to YAML file that contains the new record details.")
 	createCmd.Flags().String("zone-id", "", "Cloudflare Zone ID")
@@ -60,6 +42,13 @@ func init() {
 	viper.BindPFlag("proxied", createCmd.Flags().Lookup("proxied"))
 	viper.BindPFlag("priority", createCmd.Flags().Lookup("priority"))
 	viper.BindPFlag("comment", createCmd.Flags().Lookup("comment"))
+
+	cobra.OnInitialize(func() {
+		// Load from YAML if provided
+		if recordFile != "" {
+			viper.SetConfigFile(recordFile)
+		}
+	})
 }
 
 // overrideFlags ensures command-line flag values take precedence over YAML file values

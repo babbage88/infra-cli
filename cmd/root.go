@@ -53,7 +53,6 @@ func init() {
 	cobra.OnInitialize(func() {
 		initConfig()
 	})
-
 }
 
 func initConfig() {
