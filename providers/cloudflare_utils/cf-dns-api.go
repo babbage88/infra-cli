@@ -25,6 +25,22 @@ func NewCloudflareCommand(token string, domainName string) *CloudflareCommandUti
 	return cfcmd
 }
 
+func GetCloudFlareZoneIdByDomainName(token string, zoneName string) (string, error) {
+	api, err := NewCloudflareAPIClient(token)
+	if err != nil {
+		return "", err
+	}
+
+	zoneID, err := api.ZoneIDByName(zoneName)
+	if err != nil {
+		msg := fmt.Sprintf("Error retrieving ZoneId for Domain: %s error: %s", zoneName, err.Error())
+		pretty.PrettyLogInfoString(msg)
+		return zoneID, err
+	}
+
+	return zoneID, err
+}
+
 func (cf *CloudflareCommandUtils) NewApiClientFromToken(token string) {
 	cf.ApiClient, cf.Error = cloudflare.NewWithAPIToken(token)
 }

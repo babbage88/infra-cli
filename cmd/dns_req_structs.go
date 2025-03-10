@@ -6,7 +6,7 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 )
 
-type DnsRecordModRequest struct {
+type DnsRecordBatchRequest struct {
 	NewOrModifiyRecords map[string]DnsRecord `yaml:"zone_id" json:"zone_id"`
 }
 

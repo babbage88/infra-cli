@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	jwtAuthToken string
-	cfgFile      string
-	apiTokens    map[string]string
+	jwtAuthToken   string
+	cfgFile        string
+	apiTokens      map[string]string
+	rootDomainName string
 )
 
 var rootCmd = &cobra.Command{
@@ -40,12 +41,15 @@ func init() {
 		"A string map to store API tokens use provider name as key. eg: api-tokens coudflare='token123'")
 	rootCmd.PersistentFlags().StringVar(&jwtAuthToken, "auth-token", "",
 		"JWT Token for authentication with both manager or external WebAPIs")
+	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
+		"The root domain/zone name for which dns changes or queries will be made. ")
 
 	viper.SetDefault("api_tokens", viper.GetStringMapString("api_tokens"))
 	viper.BindPFlag("api_tokens", cloudflareCmd.PersistentFlags().Lookup("api-token"))
 	viper.SetDefault("auth_token", viper.GetString("auth_token"))
 	viper.BindPFlag("auth_token", cloudflareCmd.PersistentFlags().Lookup("auth-token"))
-	viper.SetEnvPrefix("CF") // CF_API_TOKEN
+	viper.SetDefault("domain_name", viper.GetString("domain_name"))
+	viper.BindPFlag("domain_name", cloudflareCmd.PersistentFlags().Lookup("domain-name"))
 	viper.AutomaticEnv()
 
 	// Read Viper config before execution
