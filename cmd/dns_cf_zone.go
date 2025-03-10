@@ -38,8 +38,7 @@ func getZoneIdCmd(token string, zoneName string) error {
 		pretty.PrettyErrorLogF("Error retrieving DNS Records %s", err.Error())
 		return err
 	}
-	msg := fmt.Sprintf("Domain: %s ZoneId: %s", zoneName, zoneId)
-	pretty.PrettyLogInfoString(msg)
+
 	printDnsAndZoneIdTable(zoneName, zoneId)
 
 	return nil
