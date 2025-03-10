@@ -13,22 +13,6 @@ func fileNameWithoutExtension(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
-func readDefaultConfigFile() error {
-	if cfgFile != "" {
-		baseFile := fileNameWithoutExtension(cfgFile)
-		extension := filepath.Ext(cfgFile)
-		viper.SetConfigFile(baseFile)
-		viper.SetConfigType(extension[1:])
-	} else {
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath(".config/infractl")
-	}
-	err := viper.ReadInConfig()
-	return err
-}
-
 func addFullPathToConfig(path string) error {
 	dir := filepath.Dir(path)
 	file := filepath.Base(path)

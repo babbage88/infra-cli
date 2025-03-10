@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 	"github.com/babbage88/infra-cli/internal/pretty"
@@ -56,15 +57,8 @@ func init() {
 }
 
 func initConfig() {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-	}
-
-	if err := viper.ReadInConfig(); err != nil {
+	err := readDefaultConfigFile()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read config file: %v\n", err)
 	}
 
@@ -87,6 +81,22 @@ func initConfig() {
 	jwtKeyName = viper.GetString("jwt_key_name")
 	jwtTokenName = viper.GetString("jwt_token_name")
 	jwtAuthToken = viper.GetString("jwt_secret")
+}
+
+func readDefaultConfigFile() error {
+	if cfgFile != "" {
+		baseFile := fileNameWithoutExtension(cfgFile)
+		extension := filepath.Ext(cfgFile)
+		viper.SetConfigFile(baseFile)
+		viper.SetConfigType(extension[1:])
+	} else {
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath(".config/infractl")
+	}
+	err := viper.ReadInConfig()
+	return err
 }
 
 func writeToEnvFile(filename, key, value string) {
