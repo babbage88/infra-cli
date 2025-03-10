@@ -16,6 +16,7 @@ var zoneCmd = &cobra.Command{
 	Aliases: []string{"get-zoneid"},
 	Short:   "Get the zoneId for a given domain-name Cloudflare DNS records",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Println()
 		err := getZoneIdCmd(cfDnsToken, viper.GetString("zone_name"))
 		if err != nil {
 			pretty.PrettyErrorLogF("Error initializing cloudflare api client %s\n", err.Error())
@@ -28,9 +29,7 @@ var zoneCmd = &cobra.Command{
 func init() {
 	cloudflareCmd.AddCommand(zoneCmd)
 	zoneCmd.PersistentFlags().String("zone-name", viper.GetString("domain_name"), "DNS Zone Name to fetch ID for.")
-
 	viper.BindPFlag("zone_name", zoneCmd.PersistentFlags().Lookup("zone-name"))
-
 }
 
 func getZoneIdCmd(token string, zoneName string) error {

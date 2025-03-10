@@ -37,6 +37,8 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"Config file (default is config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfDnsToken, "cf-token", "",
+		"Cloudflare API Token - debugging")
 	rootCmd.PersistentFlags().StringToStringVar(&apiTokens, "api-tokens", nil,
 		"A string map to store API tokens use provider name as key. eg: api-tokens coudflare='token123'")
 	rootCmd.PersistentFlags().StringVar(&jwtAuthToken, "auth-token", "",
@@ -44,20 +46,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
 		"The root domain/zone name for which dns changes or queries will be made. ")
 
-	viper.SetDefault("api_tokens", viper.GetStringMapString("api_tokens"))
-	viper.BindPFlag("api_tokens", cloudflareCmd.PersistentFlags().Lookup("api-token"))
-	viper.SetDefault("auth_token", viper.GetString("auth_token"))
-	viper.BindPFlag("auth_token", cloudflareCmd.PersistentFlags().Lookup("auth-token"))
-	viper.SetDefault("domain_name", viper.GetString("domain_name"))
-	viper.BindPFlag("domain_name", cloudflareCmd.PersistentFlags().Lookup("domain-name"))
-	viper.AutomaticEnv()
-
 	// Read Viper config before execution
 	cobra.OnInitialize(func() {
 		initConfig()
-		jwtKeyName = viper.GetString("jwt_key_name")
-		jwtTokenName = viper.GetString("jwt_token_name")
-		jwtAuthToken = viper.GetString("jwt_secret")
 	})
 
 }
@@ -75,13 +66,25 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "Failed to read config file: %v\n", err)
 	}
 
-	if apiTokens == nil {
-		apiTokens = viper.GetStringMapString("api_tokens")
-	}
+	viper.SetDefault("api_tokens", viper.GetStringMapString("api_tokens"))
+	viper.BindPFlag("api_tokens", cloudflareCmd.PersistentFlags().Lookup("api-token"))
+	viper.SetDefault("auth_token", viper.GetString("auth_token"))
+	viper.BindPFlag("auth_token", cloudflareCmd.PersistentFlags().Lookup("auth-token"))
+	viper.SetDefault("domain_name", viper.GetString("domain_name"))
+	viper.BindPFlag("domain_name", cloudflareCmd.PersistentFlags().Lookup("domain-name"))
+	viper.SetDefault("cf_token", viper.GetString("cf_token"))
+	viper.BindPFlag("cf_token", cloudflareCmd.PersistentFlags().Lookup("cf-token"))
+	viper.AutomaticEnv()
+
+	apiTokens = viper.GetStringMapString("api_tokens")
 
 	if jwtAuthToken == "" {
 		jwtAuthToken = viper.GetString("auth_token")
 	}
+
+	jwtKeyName = viper.GetString("jwt_key_name")
+	jwtTokenName = viper.GetString("jwt_token_name")
+	jwtAuthToken = viper.GetString("jwt_secret")
 }
 
 func writeToEnvFile(filename, key, value string) {

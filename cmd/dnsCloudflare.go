@@ -17,12 +17,16 @@ var (
 func init() {
 	dnsCmd.AddCommand(cloudflareCmd)
 	//Checking if api token for cloudflare was passed via apiTokens from root command.
-	cfapi, exists := apiTokens["cloudflare"]
-	if exists {
-		cfDnsToken = cfapi
-	} else {
-		viper.SetEnvPrefix("cf")
-		viper.AutomaticEnv()
-	}
+	cobra.OnInitialize(func() {
+		apiTokens = viper.GetStringMapString("api_tokens")
+		cfapi, exists := apiTokens["cloudflare"]
+		if exists {
+			cfDnsToken = cfapi
+		} else {
+			viper.SetEnvPrefix("cf")
+			viper.AutomaticEnv()
+		}
+
+	})
 
 }
