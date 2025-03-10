@@ -16,6 +16,7 @@ var (
 	cfgFile        string
 	apiTokens      map[string]string
 	rootDomainName string
+	rawFlag        bool
 )
 
 var rootCmd = &cobra.Command{
@@ -37,6 +38,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"Config file (default is config.yaml)")
+	rootCmd.PersistentFlags().BoolVarP(&rawFlag, "raw", "r", false, "Display command output without any color or highlighting.")
 	rootCmd.PersistentFlags().StringVar(&cfDnsToken, "cf-token", "",
 		"Cloudflare API Token - debugging")
 	rootCmd.PersistentFlags().StringToStringVar(&apiTokens, "api-tokens", nil,

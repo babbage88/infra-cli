@@ -38,17 +38,33 @@ func getZoneIdCmd(token string, zoneName string) error {
 		pretty.PrettyErrorLogF("Error retrieving DNS Records %s", err.Error())
 		return err
 	}
-
-	printDnsAndZoneIdTable(zoneName, zoneId)
+	switch rawFlag {
+	case true:
+		printDnsAndZoneIdTable(zoneName, zoneId)
+	default:
+		prettyPrintZoneIdTable(zoneName, zoneId)
+	}
 
 	return nil
 }
 
 func printDnsAndZoneIdTable(domain string, zoneId string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 5, 0, 1, ' ', tabwriter.TabIndent)
-	fmt.Fprintln(tw, "DomainName\t\tZoneID")
+	fmt.Fprintln(tw, "ZoneName\t\tZoneID")
 	fmt.Fprintln(tw, "----------\t\t------")
 	fmt.Fprintf(tw, "%s\t\t%s\n", domain, zoneId)
+	err := tw.Flush()
+	return err
+}
+
+func prettyPrintZoneIdTable(domain string, zoneId string) error {
+	var colorInt int32 = 92
+	coloStartSting := fmt.Sprintf("\x1b[1;%dm", colorInt)
+	colorEndString := "\x1b[0m"
+	tw := tabwriter.NewWriter(os.Stdout, 5, 0, 1, ' ', tabwriter.TabIndent)
+	fmt.Fprintf(tw, "%sZoneName\tZoneID%s\n", coloStartSting, colorEndString)
+	fmt.Fprintf(tw, "%s--------\t------%s\n", coloStartSting, colorEndString)
+	fmt.Fprintf(tw, "%s%s\t%s%s\n", coloStartSting, domain, zoneId, colorEndString)
 	err := tw.Flush()
 	return err
 }
