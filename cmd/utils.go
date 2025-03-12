@@ -1,56 +1,13 @@
 package cmd
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/babbage88/infra-cli/internal/pretty"
-	"github.com/spf13/viper"
 )
 
 func fileNameWithoutExtension(path string) string {
 	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-}
-
-func addFullPathToConfig(path string) error {
-	dir := filepath.Dir(path)
-	file := filepath.Base(path)
-	extension := filepath.Ext(path)
-	viper.AddConfigPath(dir)
-	viper.SetConfigName(file)
-	viper.SetConfigType(extension[1:])
-	err := viper.ReadInConfig()
-	if err != nil {
-		pretty.PrintErrorf("error reading config path: %s error: %s\n", path, err.Error())
-		return err
-	}
-	return err
-}
-
-func mergeDefaultWithOthers(supl []string) error {
-	viper.Reset()
-	err := readDefaultConfigFile()
-	if err != nil {
-		pretty.PrintErrorf("error reading config file %s error: %s", cfgFile, err.Error())
-		return err
-	}
-
-	for _, fullPath := range supl {
-		dir := filepath.Dir(fullPath)
-		file := filepath.Base(fullPath)
-		extension := filepath.Ext(fullPath)
-		viper.AddConfigPath(dir)
-		viper.SetConfigName(file)
-		viper.SetConfigType(extension[1:])
-		err := viper.MergeInConfig()
-		if err != nil {
-			pretty.PrintErrorf("error merging config file %s error: %s", fullPath, err.Error())
-			return err
-		}
-	}
-	return nil
-}
+} /*
 
 // llm junk for reference while on addFullPathToConfig
 func loadMultipleConfigs(configPaths []string, configNames []string) error {
@@ -80,6 +37,7 @@ func loadMultipleConfigs(configPaths []string, configNames []string) error {
 	return nil
 }
 
+
 func testConfigMerge() {
 	configPaths := []string{"./config", "/etc/app"}
 	configNames := []string{"base.yaml", "override.yaml", "local.yaml"}
@@ -93,3 +51,4 @@ func testConfigMerge() {
 	fmt.Println("Server Port:", viper.GetString("server.port"))
 	fmt.Println("Database URL:", viper.GetString("database.url"))
 }
+*/
