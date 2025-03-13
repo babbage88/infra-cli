@@ -12,7 +12,6 @@ var cloudflareCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		for _, record := range recordsBatch.Records {
 			pretty.Print("The following records were parsed from dns-config:\n")
-			//pretty.Printf("API Token for cloudflare: %s", rootCfg.GetStringMapString("api_tokens")["cloudflare"])
 
 			pretty.Printf("ZoneName: %s", record.ZoneName)
 			pretty.Printf("Name: %s", record.Name)

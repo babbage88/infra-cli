@@ -3,22 +3,12 @@ package cloudflare_utils
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"text/tabwriter"
 
 	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/cloudflare/cloudflare-go"
 )
-
-func printJson(data any) {
-	response, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		slog.Error("error marshaling response.", slog.String("error", err.Error()))
-	}
-	fmt.Printf("%s\n", string(response))
-	fmt.Println()
-}
 
 func (cfcmd *CloudflareCommandUtils) PrintCommandResultAsJson(result any) string {
 	fmt.Println()
