@@ -1,28 +1,32 @@
 package cmd
 
 import (
+	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-var dnsRecord DnsRecord
 
 var createCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create Cloudflare DNS records",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Override YAML values with command-line flags
-		overrideFlags(cmd)
-
-		// Execute creation logic
-		return nil
+		err := recordsBatch.GetAllZoneIdsForBatch(cfDnsToken)
+		if err != nil {
+			pretty.PrintErrorf("error retrieving zoneIds err: %s", err.Error())
+			return err
+		}
+		err = recordsBatch.ProcessDnsBatch(cfDnsToken)
+		if err != nil {
+			pretty.PrintErrorf("error retrieving zoneIds err: %s", err.Error())
+			return err
+		}
+		return err
 	},
 }
 
 func init() {
 	var recordFile string
-	// newDnsRecord DnsRecord
-	dnsCmd.AddCommand(createCmd)
+	cloudflareCmd.AddCommand(createCmd)
 	createCmd.Flags().StringVar(&recordFile, "file", "dnsRecords.yaml", "Path to YAML file that contains the new record details.")
 	createCmd.Flags().String("zone-id", "", "Cloudflare Zone ID")
 	createCmd.Flags().String("record-name", "", "DNS Record Name")
@@ -42,39 +46,51 @@ func init() {
 	viper.BindPFlag("proxied", createCmd.Flags().Lookup("proxied"))
 	viper.BindPFlag("priority", createCmd.Flags().Lookup("priority"))
 	viper.BindPFlag("comment", createCmd.Flags().Lookup("comment"))
-
+	nameProvided := createCmd.Flags().Changed("record_name")
+	contentProvided := createCmd.Flags().Changed("content")
+	recTypeProvided := createCmd.Flags().Changed("record_type")
+	enoughFlagsForCreate := nameProvided && contentProvided && recTypeProvided
+	viper.Set("parse_flags", enoughFlagsForCreate)
 	cobra.OnInitialize(func() {
-		// Load from YAML if provided
-		if recordFile != "" {
-			viper.SetConfigFile(recordFile)
+		apiTokens = rootViperCfg.GetStringMapString("api_tokens")
+		cfapi, exists := apiTokens["cloudflare"]
+		if exists {
+			cfDnsToken = cfapi
+		}
+		flagRecord := parseFlags(createCmd)
+		if flagRecord != nil {
+			recordsBatch.Records = append(recordsBatch.Records, *flagRecord)
 		}
 	})
 }
 
 // overrideFlags ensures command-line flag values take precedence over YAML file values
-func overrideFlags(cmd *cobra.Command) {
-	if cmd.Flags().Changed("record-name") {
-		dnsRecord.Name, _ = cmd.Flags().GetString("record-name")
+func parseFlags(cmd *cobra.Command) *DnsRecord {
+	flagRecord := &DnsRecord{}
+	if viper.GetBool("parse_flags") {
+		flagRecord.Name, _ = cmd.Flags().GetString("record-name")
+		flagRecord.Type, _ = cmd.Flags().GetString("record-type")
+		flagRecord.Content, _ = cmd.Flags().GetString("content")
+		if cmd.Flags().Changed("ttl") {
+			flagRecord.TTL, _ = cmd.Flags().GetInt("ttl")
+		} else {
+			flagRecord.TTL = 120
+		}
+		if cmd.Flags().Changed("proxied") {
+			flagRecord.Proxied, _ = cmd.Flags().GetBool("proxied")
+		} else {
+			flagRecord.Proxied = true
+		}
+		if cmd.Flags().Changed("priority") {
+			ptr, _ := cmd.Flags().GetUint16("priority")
+			flagRecord.Priority = &ptr
+		}
+		if cmd.Flags().Changed("comment") {
+			flagRecord.Comment, _ = cmd.Flags().GetString("comment")
+		}
+		return flagRecord
 	}
-	if cmd.Flags().Changed("record-type") {
-		dnsRecord.Type, _ = cmd.Flags().GetString("record-type")
-	}
-	if cmd.Flags().Changed("content") {
-		dnsRecord.Content, _ = cmd.Flags().GetString("content")
-	}
-	if cmd.Flags().Changed("ttl") {
-		dnsRecord.TTL, _ = cmd.Flags().GetInt("ttl")
-	}
-	if cmd.Flags().Changed("proxied") {
-		dnsRecord.Proxied, _ = cmd.Flags().GetBool("proxied")
-	}
-	if cmd.Flags().Changed("priority") {
-		ptr, _ := cmd.Flags().GetUint16("priority")
-		dnsRecord.Priority = &ptr
-	}
-	if cmd.Flags().Changed("comment") {
-		dnsRecord.Comment, _ = cmd.Flags().GetString("comment")
-	}
+	return nil
 }
 
 func WhereAmI(param any) *any {

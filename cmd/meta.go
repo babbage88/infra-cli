@@ -19,7 +19,7 @@ var metaCmd = &cobra.Command{
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var recordsBatch DnsRecordBatchRequest
-		if err := metaCfg.Unmarshal(&recordsBatch); err != nil {
+		if err := metaViperCfg.Unmarshal(&recordsBatch); err != nil {
 			pretty.PrintErrorf("Unable to decode into struct: %v", err)
 		}
 		for _, record := range recordsBatch.Records {
@@ -27,10 +27,10 @@ var metaCmd = &cobra.Command{
 			pretty.Printf("Name: %s", record.Name)
 			pretty.Printf("Content: %s", record.Content)
 		}
-		vkeys := rootCfg.AllKeys()
+		vkeys := rootViperCfg.AllKeys()
 		if metaCfgFile != "" {
-			mkeys := metaCfg.AllKeys()
-			cfgUsed := metaCfg.ConfigFileUsed()
+			mkeys := metaViperCfg.AllKeys()
+			cfgUsed := metaViperCfg.ConfigFileUsed()
 			pretty.Printf("[DEBUG] - %s | %s", pretty.DateTimeSting(time.Now()), cfgUsed)
 			for _, key := range mkeys {
 				pretty.Printf("key: %s value: %s\n", key, viper.GetString(key))

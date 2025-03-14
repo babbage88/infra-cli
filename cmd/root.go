@@ -17,13 +17,13 @@ import (
 )
 
 var (
-	jwtAuthToken                     string
-	cfgFile, metaCfgFile, dnsCfgFile string
-	apiTokens                        map[string]string
-	rootDomainName                   string
-	rawFlag                          bool
-	suplementalCfg                   []string
-	rootCfg, dnsCfg, metaCfg         *viper.Viper
+	jwtAuthToken                            string
+	cfgFile, metaCfgFile, dnsCfgFile        string
+	apiTokens                               map[string]string
+	rootDomainName                          string
+	rawFlag                                 bool
+	suplementalCfg                          []string
+	rootViperCfg, dnsViperCfg, metaViperCfg *viper.Viper
 )
 
 var rootCmd = &cobra.Command{
@@ -49,9 +49,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&rawFlag, "raw", "r", false,
 		"Display command output without any color or highlighting.")
 
-	rootCmd.PersistentFlags().StringVar(&cfDnsToken, "cf-token", "",
-		"Cloudflare API Token - debugging")
-
 	rootCmd.PersistentFlags().StringToStringVar(&apiTokens, "api-tokens", nil,
 		"A string map to store API tokens use provider name as key. eg: api-tokens coudflare='token123'")
 
@@ -75,65 +72,62 @@ func initConfig() {
 		pretty.PrintErrorf("error loading root config %s", err.Error())
 	}
 
-	viper.SetDefault("api_tokens", viper.GetStringMapString("api_tokens"))
-	viper.BindPFlag("api_tokens", rootCmd.PersistentFlags().Lookup("api-token"))
-	viper.SetDefault("auth_token", viper.GetString("auth_token"))
-	viper.BindPFlag("auth_token", rootCmd.PersistentFlags().Lookup("auth-token"))
-	viper.SetDefault("domain_name", viper.GetString("domain_name"))
-	viper.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
-	viper.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
-	viper.AutomaticEnv()
+	rootViperCfg.BindPFlag("api_tokens", rootCmd.PersistentFlags().Lookup("api-tokens"))
+	rootViperCfg.BindPFlag("auth_token", rootCmd.PersistentFlags().Lookup("auth-token"))
+	rootViperCfg.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
+	rootViperCfg.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
+	rootViperCfg.AutomaticEnv()
 
-	apiTokens = viper.GetStringMapString("api_tokens")
+	apiTokens = rootViperCfg.GetStringMapString("api_tokens")
 
 	if jwtAuthToken == "" {
-		jwtAuthToken = viper.GetString("auth_token")
+		jwtAuthToken = rootViperCfg.GetString("auth_token")
 	}
 
-	jwtKeyName = viper.GetString("jwt_key_name")
-	jwtTokenName = viper.GetString("jwt_token_name")
-	jwtAuthToken = viper.GetString("jwt_secret")
+	jwtKeyName = rootViperCfg.GetString("jwt_key_name")
+	jwtTokenName = rootViperCfg.GetString("jwt_token_name")
+	jwtAuthToken = rootViperCfg.GetString("jwt_secret")
 }
 
 func loadRootConfigFile() error {
-	rootCfg = viper.New() // Use viper.New() instead of &viper.Viper{}
+	rootViperCfg = viper.New() // Use viper.New() instead of &viper.Viper{}
 
 	if cfgFile != "" {
 		baseFile := fileNameWithoutExtension(cfgFile)
 		basecfgDir := filepath.Dir(cfgFile)
 		cfgExtension := filepath.Ext(cfgFile)[1:]
 
-		rootCfg.SetConfigName(baseFile)
-		rootCfg.SetConfigType(cfgExtension)
-		rootCfg.AddConfigPath(basecfgDir)
+		rootViperCfg.SetConfigName(baseFile)
+		rootViperCfg.SetConfigType(cfgExtension)
+		rootViperCfg.AddConfigPath(basecfgDir)
 	} else {
-		rootCfg.SetConfigName("default")
-		rootCfg.SetConfigType("yaml")
-		rootCfg.AddConfigPath(".")
-		rootCfg.AddConfigPath(".config/infractl")
+		rootViperCfg.SetConfigName("default")
+		rootViperCfg.SetConfigType("yaml")
+		rootViperCfg.AddConfigPath(".")
+		rootViperCfg.AddConfigPath(".config/infractl")
 	}
 
-	if err := rootCfg.ReadInConfig(); err != nil {
+	if err := rootViperCfg.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read root config: %w", err)
 	}
 
-	rootCfg.WatchConfig()
+	rootViperCfg.WatchConfig()
 	return nil
 }
 
 func mergeMetaConfigFile() error {
 	if metaCfgFile != "" {
-		metaCfg = viper.New()
+		metaViperCfg = viper.New()
 		baseFile := fileNameWithoutExtension(metaCfgFile)
 		basecfgDir := filepath.Dir(metaCfgFile)
 		cfgExtesnion := filepath.Ext(metaCfgFile)[1:]
-		metaCfg.SetConfigName(baseFile)
-		metaCfg.SetConfigType(cfgExtesnion)
-		metaCfg.AddConfigPath(basecfgDir)
-		if err := metaCfg.ReadInConfig(); err != nil {
+		metaViperCfg.SetConfigName(baseFile)
+		metaViperCfg.SetConfigType(cfgExtesnion)
+		metaViperCfg.AddConfigPath(basecfgDir)
+		if err := metaViperCfg.ReadInConfig(); err != nil {
 			return fmt.Errorf("failed to read root config: %w", err)
 		}
-		metaCfg.WatchConfig()
+		metaViperCfg.WatchConfig()
 	}
 
 	return nil
@@ -142,17 +136,17 @@ func mergeMetaConfigFile() error {
 func mergeDnsConfigFile() error {
 
 	if dnsCfgFile != "" {
-		dnsCfg = viper.New()
+		dnsViperCfg = viper.New()
 		baseFile := fileNameWithoutExtension(dnsCfgFile)
 		basecfgDir := filepath.Dir(dnsCfgFile)
 		cfgExtesnion := filepath.Ext(dnsCfgFile)[1:]
-		dnsCfg.SetConfigName(baseFile)
-		dnsCfg.SetConfigType(cfgExtesnion)
-		dnsCfg.AddConfigPath(basecfgDir)
-		if err := dnsCfg.ReadInConfig(); err != nil {
+		dnsViperCfg.SetConfigName(baseFile)
+		dnsViperCfg.SetConfigType(cfgExtesnion)
+		dnsViperCfg.AddConfigPath(basecfgDir)
+		if err := dnsViperCfg.ReadInConfig(); err != nil {
 			return fmt.Errorf("failed to read root config: %w", err)
 		}
-		dnsCfg.WatchConfig()
+		dnsViperCfg.WatchConfig()
 	}
 
 	return nil

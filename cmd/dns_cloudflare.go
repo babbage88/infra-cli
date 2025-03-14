@@ -3,7 +3,6 @@ package cmd
 import (
 	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var cloudflareCmd = &cobra.Command{
@@ -28,17 +27,17 @@ func init() {
 	dnsCmd.AddCommand(cloudflareCmd)
 	//Checking if api token for cloudflare was passed via apiTokens from root command.
 	cobra.OnInitialize(func() {
-		apiTokens = viper.GetStringMapString("api_tokens")
+		apiTokens = rootViperCfg.GetStringMapString("api_tokens")
 		cfapi, exists := apiTokens["cloudflare"]
 		if exists {
 			cfDnsToken = cfapi
 		} else {
-			viper.SetEnvPrefix("cf")
-			viper.AutomaticEnv()
+			dnsViperCfg.SetEnvPrefix("cf")
+			dnsViperCfg.AutomaticEnv()
 		}
 
 		if dnsCfgFile != "" {
-			if err := dnsCfg.Unmarshal(&recordsBatch); err != nil {
+			if err := dnsViperCfg.Unmarshal(&recordsBatch); err != nil {
 				pretty.PrintErrorf("Unable to decode into struct: %v", err)
 			}
 		}
