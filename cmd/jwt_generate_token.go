@@ -24,8 +24,12 @@ var newClientTokenCmd = &cobra.Command{
 			fmt.Println("Error generating token:", err)
 			return
 		}
+		if !rawFlag {
+			fmt.Printf("JWT Token: %s\n", tokenString)
 
-		fmt.Println("JWT Token:", tokenString)
+		} else {
+			fmt.Printf("%s\n", tokenString)
+		}
 
 		// Write to .env if specified
 		if envFile != "" {
@@ -52,7 +56,7 @@ func init() {
 	newClientTokenCmd.Flags().StringVarP(&yamlFile, "output-yaml-file", "y", "", "Write token to .yaml file")
 	newClientTokenCmd.Flags().StringVarP(&jsonFile, "output-json-file", "j", "", "Write token to .json file")
 	newClientTokenCmd.Flags().StringVarP(&tomlFile, "output-toml-file", "t", "", "Write token to .toml file")
-	newClientTokenCmd.Flags().StringVarP(&jwtKeyName, "jwt-key-name", "k", "JWT_KEY", "Key name for JWT secret in .env file")
+	newClientTokenCmd.Flags().StringVar(&jwtKeyName, "jwt-key-name", "JWT_KEY", "Key name for JWT secret in .env file")
 	newClientTokenCmd.Flags().StringVarP(&jwtTokenName, "jwt-token-name", "a", "JWT_AUTH_TOKEN", "Key name for JWT tokens in .env file")
 
 	viper.BindPFlag("jwt_key_name", newClientTokenCmd.Flags().Lookup("jwt-key-name"))

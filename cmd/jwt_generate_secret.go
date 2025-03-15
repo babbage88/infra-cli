@@ -23,7 +23,11 @@ var generateCmd = &cobra.Command{
 		}
 
 		secretStr := base64.StdEncoding.EncodeToString(secret)
-		fmt.Println("Generated Secret:", secretStr)
+		if !rawFlag {
+			fmt.Printf("JWT Signing Secret: %s\n", secretStr)
+		} else {
+			fmt.Printf("%s\n", secretStr)
+		}
 
 		// Write to .env if specified
 		if envFile != "" {
