@@ -1,5 +1,7 @@
 GHCR_REPO:=ghcr.io/babbage88/infractl:
-BIN_NAME:=goinfracli
+BIN_NAME:=infractl
+DEFAULT_CFG_FILE:=default.yaml
+DEFUALT_CONFIG_DIR:=~/.config/infractl
 MAIN_BRANCH:=master
 VERSION_TYPE:=patch
 INSTALL_PATH:=$${GOPATH}/bin
@@ -22,10 +24,12 @@ build:
 	go build $(V) -o $(BIN_NAME) .
 
 build-quiet:
-	go build -o goinfracli
+	go build -o $(BIN_NAME)
 
 install: build
 	echo "Install Path $(INSTALL_PATH)"
+	mkdir -p $(DEFUALT_CONFIG_DIR)
+	cp $(DEFAULT_CFG_FILE) $(DEFUALT_CONFIG_DIR)
 	mv $(BIN_NAME) $(INSTALL_PATH)
 
 # Add this target to the end of your Makefile

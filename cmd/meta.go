@@ -18,10 +18,17 @@ var metaCmd = &cobra.Command{
 	Short: "Debugging/Development subcommand for Viper/Cobra",
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
+		testCf := apiTokens["cloudflare"]
+		pretty.Print(testCf)
+		testDir := GetConfigPath()
+		pretty.Print(testDir)
 		var recordsBatch DnsRecordBatchRequest
-		if err := metaViperCfg.Unmarshal(&recordsBatch); err != nil {
-			pretty.PrintErrorf("Unable to decode into struct: %v", err)
+		if metaCfgFile != "" {
+			if err := metaViperCfg.Unmarshal(&recordsBatch); err != nil {
+				pretty.PrintErrorf("Unable to decode into struct: %v", err)
+			}
 		}
+
 		for _, record := range recordsBatch.Records {
 			pretty.Printf("ZoneName: %s", record.ZoneName)
 			pretty.Printf("Name: %s", record.Name)
@@ -62,14 +69,16 @@ func init() {
 	rootCmd.AddCommand(metaCmd)
 	metaCmd.PersistentFlags().StringVar(&metaCfgFile, "meta-config", "",
 		"Config file (default is meta-config.yaml)")
-	err := mergeMetaConfigFile()
-	if err != nil {
-		pretty.PrintErrorf("error merging meta-config %s", err.Error())
-	}
+	if metaCfgFile != "" {
+		err := mergeMetaConfigFile()
+		if err != nil {
+			pretty.PrintErrorf("error merging meta-config %s", err.Error())
+		}
 
-	err = loadRootConfigFile()
-	if err != nil {
-		pretty.PrintErrorf("error merging meta-config %s", err.Error())
+		err = loadRootConfigFile()
+		if err != nil {
+			pretty.PrintErrorf("error merging meta-config %s", err.Error())
+		}
 	}
 
 	cobra.OnInitialize(func() {

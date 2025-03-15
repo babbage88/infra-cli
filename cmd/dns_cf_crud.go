@@ -52,11 +52,13 @@ func init() {
 	enoughFlagsForCreate := nameProvided && contentProvided && recTypeProvided
 	viper.Set("parse_flags", enoughFlagsForCreate)
 	cobra.OnInitialize(func() {
-		apiTokens = rootViperCfg.GetStringMapString("api_tokens")
-		cfapi, exists := apiTokens["cloudflare"]
-		if exists {
-			cfDnsToken = cfapi
+		if apiTokens != nil {
+			cfapi, exists := apiTokens["cloudflare"]
+			if exists {
+				cfDnsToken = cfapi
+			}
 		}
+
 		flagRecord := parseFlags(createCmd)
 		if flagRecord != nil {
 			recordsBatch.Records = append(recordsBatch.Records, *flagRecord)

@@ -43,7 +43,7 @@ func init() {
 	// Load default config values
 	apiTokens = make(map[string]string)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "default.yaml",
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"Config file (default is default.yaml)")
 
 	rootCmd.PersistentFlags().BoolVarP(&rawFlag, "raw", "r", false,
@@ -72,6 +72,7 @@ func initConfig() {
 		pretty.PrintErrorf("error loading root config %s", err.Error())
 	}
 
+	rootViperCfg.SetDefault("api_tokens", apiTokens)
 	rootViperCfg.BindPFlag("api_tokens", rootCmd.PersistentFlags().Lookup("api-tokens"))
 	rootViperCfg.BindPFlag("auth_token", rootCmd.PersistentFlags().Lookup("auth-token"))
 	rootViperCfg.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
@@ -89,8 +90,18 @@ func initConfig() {
 	jwtAuthToken = rootViperCfg.GetString("jwt_secret")
 }
 
+func GetConfigPath() string {
+	dirname, err := os.UserHomeDir()
+	if err != nil {
+		pretty.PrintErrorf("error retrieving the current user's home dir. error: %s", err.Error())
+	}
+	infractldotConfigDir := filepath.Join(dirname, ".config", "infractl")
+	return infractldotConfigDir
+}
+
 func loadRootConfigFile() error {
 	rootViperCfg = viper.New() // Use viper.New() instead of &viper.Viper{}
+	infractldotConfigDir := GetConfigPath()
 
 	if cfgFile != "" {
 		baseFile := fileNameWithoutExtension(cfgFile)
@@ -100,10 +111,12 @@ func loadRootConfigFile() error {
 		rootViperCfg.SetConfigName(baseFile)
 		rootViperCfg.SetConfigType(cfgExtension)
 		rootViperCfg.AddConfigPath(basecfgDir)
+		rootViperCfg.SetConfigFile(cfgFile)
 	} else {
 		rootViperCfg.SetConfigName("default")
 		rootViperCfg.SetConfigType("yaml")
 		rootViperCfg.AddConfigPath(".")
+		rootViperCfg.AddConfigPath(infractldotConfigDir)
 		rootViperCfg.AddConfigPath(".config/infractl")
 	}
 
@@ -116,6 +129,7 @@ func loadRootConfigFile() error {
 }
 
 func mergeMetaConfigFile() error {
+	infractldotConfigDir := GetConfigPath()
 	if metaCfgFile != "" {
 		metaViperCfg = viper.New()
 		baseFile := fileNameWithoutExtension(metaCfgFile)
@@ -124,8 +138,9 @@ func mergeMetaConfigFile() error {
 		metaViperCfg.SetConfigName(baseFile)
 		metaViperCfg.SetConfigType(cfgExtesnion)
 		metaViperCfg.AddConfigPath(basecfgDir)
+		metaViperCfg.AddConfigPath(infractldotConfigDir)
 		if err := metaViperCfg.ReadInConfig(); err != nil {
-			return fmt.Errorf("failed to read root config: %w", err)
+			return fmt.Errorf("failed to read meta config: %w", err)
 		}
 		metaViperCfg.WatchConfig()
 	}
@@ -134,7 +149,7 @@ func mergeMetaConfigFile() error {
 }
 
 func mergeDnsConfigFile() error {
-
+	infractldotConfigDir := GetConfigPath()
 	if dnsCfgFile != "" {
 		dnsViperCfg = viper.New()
 		baseFile := fileNameWithoutExtension(dnsCfgFile)
@@ -143,8 +158,9 @@ func mergeDnsConfigFile() error {
 		dnsViperCfg.SetConfigName(baseFile)
 		dnsViperCfg.SetConfigType(cfgExtesnion)
 		dnsViperCfg.AddConfigPath(basecfgDir)
+		dnsViperCfg.AddConfigPath(infractldotConfigDir)
 		if err := dnsViperCfg.ReadInConfig(); err != nil {
-			return fmt.Errorf("failed to read root config: %w", err)
+			return fmt.Errorf("failed to read dns config: %w", err)
 		}
 		dnsViperCfg.WatchConfig()
 	}
