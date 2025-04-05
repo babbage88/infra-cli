@@ -106,7 +106,7 @@ var newAppDBCmd = &cobra.Command{
 		}
 
 		for _, stmt := range sqlStatements {
-			fmt.Println(stmt)
+			log.Printf("Executing SQL: %s\n", stmt)
 			if _, err := appdb.Exec(stmt); err != nil {
 				log.Fatalf("Failed executing statement: %s\nError: %v", stmt, err)
 			}
