@@ -65,15 +65,21 @@ var newAppDBCmd = &cobra.Command{
 				log.Fatalf("Failed to alter user password: %v", err)
 			}
 		} else {
-			_, err = db.Exec(fmt.Sprintf(`CREATE USER %s WITH PASSWORD '%s';`, username, password))
+			crtQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, username)
+			altrPwQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
+			_, err = db.Exec(crtQry)
 			if err != nil {
 				log.Fatalf("Failed to create user: %v", err)
 			}
-			fmt.Printf("User %s created.\n", username)
+			_, err = db.Exec(altrPwQry)
+			if err != nil {
+				log.Fatalf("Failed to alter user: %v", err)
+			}
+			log.Printf("User %s created.\n", username)
 		}
 
 		// Grant CONNECT on database (idempotent)
-		_, err = db.Exec(fmt.Sprintf(`GRANT CONNECT ON DATABASE %s TO %s;`, dbname, username))
+		_, err = db.Exec(fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username))
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
 			log.Fatalf("Failed to grant CONNECT: %v", err)
 		}
@@ -87,27 +93,37 @@ var newAppDBCmd = &cobra.Command{
 		defer appdb.Close()
 
 		sqlStatements := []string{
-			// Ensure schema exists
-			`CREATE SCHEMA IF NOT EXISTS public;`,
-			// Grant permissions to the schema
-			fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s;`, username),
-			fmt.Sprintf(`GRANT CREATE ON SCHEMA public TO %s;`, username),
-			// Grant access to all current tables
-			fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;`, username),
-			// Grant access to all current sequences
-			fmt.Sprintf(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %s;`, username),
 			fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
+			// Grant permissions to the schema
+			//fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s;`, username),
+			//fmt.Sprintf(`GRANT CREATE ON SCHEMA public TO %s;`, username),
+			//fmt.Sprintf(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;`, username),
+			// Grant access to all current sequences
+			//fmt.Sprintf(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %s;`, username),
+			//fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
 
 			// Alter default privileges for future tables and sequences
-			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;`, username),
-			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %s;`, username),
+			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;`, username),
+			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %s;`, username),
 			// Optional: Ensure user has ownership of schema (use with caution)
 			fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, username),
+		}
+
+		pgStatements := []string{
+			// Grant access to all current tables
+			fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username),
 		}
 
 		for _, stmt := range sqlStatements {
 			log.Printf("Executing SQL: %s\n", stmt)
 			if _, err := appdb.Exec(stmt); err != nil {
+				log.Fatalf("Failed executing statement: %s\nError: %v", stmt, err)
+			}
+		}
+
+		for _, stmt := range pgStatements {
+			log.Printf("Executing SQL: %s\n", stmt)
+			if _, err := db.Exec(stmt); err != nil {
 				log.Fatalf("Failed executing statement: %s\nError: %v", stmt, err)
 			}
 		}
