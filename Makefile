@@ -27,6 +27,7 @@ build-quiet:
 	go build -o $(BIN_NAME)
 
 install: build
+	mkdir -p $(INSTALL_PATH)
 	echo "Install Path $(INSTALL_PATH)"
 	mkdir -p $(DEFUALT_CONFIG_DIR)
 	cp $(DEFAULT_CFG_FILE) $(DEFUALT_CONFIG_DIR)
