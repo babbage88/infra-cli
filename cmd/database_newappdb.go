@@ -93,7 +93,9 @@ var newAppDBCmd = &cobra.Command{
 		defer appdb.Close()
 
 		sqlStatements := []string{
+			// Need to revisit exact required permissions, but this works for development purposes...at least it's better that just creating a super user.
 			fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
+			fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, username),
 			// Grant permissions to the schema
 			//fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s;`, username),
 			//fmt.Sprintf(`GRANT CREATE ON SCHEMA public TO %s;`, username),
@@ -106,7 +108,7 @@ var newAppDBCmd = &cobra.Command{
 			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;`, username),
 			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %s;`, username),
 			// Optional: Ensure user has ownership of schema (use with caution)
-			fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, username),
+
 		}
 
 		pgStatements := []string{
