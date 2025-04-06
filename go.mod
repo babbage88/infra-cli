@@ -1,6 +1,6 @@
 module github.com/babbage88/infra-cli
 
-go 1.24.0
+go 1.24.2
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -10,6 +10,13 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
 	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/babbage88/goph v1.5.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pkg/sftp v1.13.6 // indirect
 )
 
 require (
