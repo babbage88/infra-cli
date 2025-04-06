@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/babbage88/goph v1.5.5 // indirect
+	github.com/babbage88/goph v1.6.3 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/sftp v1.13.6 // indirect

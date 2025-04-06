@@ -2,13 +2,29 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
+	"github.com/babbage88/goph"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+func startSshClient(host string, sshKeyPath string, sshPassphrase string) {
+	auth, err := goph.Key(sshKeyPath, sshPassphrase)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client, err := goph.New("root", "192.1.1.3", auth)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Defer closing the network connection.
+	defer client.Close()
+}
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
