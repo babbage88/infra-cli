@@ -17,6 +17,8 @@ import (
 )
 
 var (
+	sshKeyPath                              string
+	sshKeyPass                              string
 	jwtAuthToken                            string
 	cfgFile, metaCfgFile, dnsCfgFile        string
 	apiTokens                               map[string]string
@@ -58,6 +60,15 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
 		"The root domain/zone name for which dns changes or queries will be made. ")
 
+	rootCmd.PersistentFlags().StringVar(&sshKeyPath, "ssh-key", "",
+		"Path to SSH Key for performing tasks on remote hosts")
+
+	rootCmd.PersistentFlags().StringVar(&sshKeyPass, "ssh-passphrase", "",
+		"Passphrase for ssh-key")
+
+	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
+		"The root domain/zone name for which dns changes or queries will be made. ")
+
 	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
 
 	// Read Viper config before execution
@@ -76,6 +87,8 @@ func initConfig() {
 	rootViperCfg.BindPFlag("api_tokens", rootCmd.PersistentFlags().Lookup("api-tokens"))
 	rootViperCfg.BindPFlag("auth_token", rootCmd.PersistentFlags().Lookup("auth-token"))
 	rootViperCfg.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
+	rootViperCfg.BindPFlag("ssh_key", rootCmd.PersistentFlags().Lookup("ssh-key"))
+	rootViperCfg.BindPFlag("ssh_passphrase", rootCmd.PersistentFlags().Lookup("ssh-passphrase"))
 	rootViperCfg.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
 	rootViperCfg.AutomaticEnv()
 
