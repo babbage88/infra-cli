@@ -72,6 +72,11 @@ check-builder:
 
 create-builder: check-builder
 
+.PHONY: build-validate
+build-validate:
+	go build -o ./remote_utils/validate ./internal/remote/deployment/validate
+
+
 buildandpush: check-builder
 	docker buildx use goinfaclibuilder
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(GHCR_REPO)$(tag) . --push
