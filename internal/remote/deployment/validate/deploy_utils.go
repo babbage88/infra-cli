@@ -60,7 +60,7 @@ func main() {
 	var uid int64
 	hostname, _ := os.Hostname()
 
-	flag.BoolVar(&validateUser, "validate-user", false, "Validate a username/UID pair")
+	flag.BoolVar(&validateUser, "validate-user", true, "Validate a username/UID pair")
 	flag.StringVar(&username, "username", "", "Username to validate")
 	flag.Int64Var(&uid, "uid", 8888, "UID to validate")
 	flag.Parse()

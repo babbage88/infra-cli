@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -61,6 +60,17 @@ type DeployFlags struct {
 }
 
 var deployFlags DeployFlags
+
+const validateUserUtilPath string = "remote_utils/validate-user"
+
+func (d *DeployFlags) copyUserValidateToRemote(client *goph.Client) error {
+	err := client.Upload(validateUserUtilPath, "/tmp/validate-user")
+	if err != nil {
+		return err
+		// return fmt.Errorf("error deploying remote_utils src: %s dst: %s err: %w", validateUserUtilPath, "/tmp/validate-user", error)
+	}
+	return nil
+}
 
 // init function to define the command flags and bind them with viper
 func init() {
@@ -153,47 +163,7 @@ func createUserOnRemote(serviceUser string, serviceUid int64) error {
 }
 
 func validateLocalUidUnamePair(serviceUser string, serviceUid int64) error {
-	usernameLookup, err := user.Lookup(serviceUser)
-	if err != nil {
-		var unknownUserErr *user.UnknownUserError
-		if errors.As(err, &unknownUserErr) {
-			//unameExists = false
-		} else {
-			return err // some other error occurred
-		}
-	} else {
-		//unameExists = true
-
-		switch {
-		//check if the specified serviceUid matches the existing username
-		case usernameLookup.Uid == fmt.Sprintf("%d", serviceUid):
-			//uidExists = true
-			return &KnownLocalUserAndIdError{}
-		case usernameLookup.Uid != fmt.Sprintf("%d", serviceUid):
-			log.Printf("the service-username: %s exists but it's current uid: %s does not match service-uid: %d\n", serviceUser, usernameLookup.Uid, serviceUid)
-			return &LocalUsernameExistsError{}
-		}
-	}
-
-	uidLookup, err := user.LookupId(fmt.Sprintf("%d", serviceUid))
-	if err != nil {
-		var unknownUserIdError *user.UnknownUserIdError
-		if errors.As(err, &unknownUserIdError) {
-			//uidExists = false
-			return nil
-		} else {
-			return err // some different error
-		}
-	} else {
-		//uidExists = true
-		switch {
-		case uidLookup.Username == serviceUser:
-			return &KnownLocalUserAndIdError{}
-		case uidLookup.Username != serviceUser:
-			return &LocalUsernameExistsError{}
-		}
-	}
-	return nil
+	return validateSvcUserInput(serviceUser, serviceUid)
 }
 
 /*
@@ -232,7 +202,6 @@ func validateRemoteUidUnamePair(serviceUser string, serviceUid int64) error {
 */
 
 func createUserOnLocal(serviceUser string) error {
-
 	// Check if the user already exists
 	cmd := exec.Command("id", "-u", serviceUser)
 	if err := cmd.Run(); err == nil {

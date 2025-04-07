@@ -9,6 +9,8 @@ ENV_FILE:=.env
 MIG:=$(shell date '+%m%d%Y.%H%M%S')
 SHELL := /bin/bash
 VERBOSE ?= 1
+export REMOTE_UTILS_DIR:=./remote_utils
+export VALIDATE_USER_UTIL_SRC:=./internal/remote/deployment/validate
 ifeq ($(VERBOSE),1)
 	V = -v
 endif
@@ -74,7 +76,8 @@ create-builder: check-builder
 
 .PHONY: build-validate
 build-validate:
-	go build -o ./remote_utils/validate ./internal/remote/deployment/validate
+	@echo "**** building validate-user util bin output: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
+	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC)
 
 utils: build-validate
 	@echo "**** building utils ****"
