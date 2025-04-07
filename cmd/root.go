@@ -66,9 +66,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&sshKeyPass, "ssh-passphrase", "",
 		"Passphrase for ssh-key")
 
-	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
-		"The root domain/zone name for which dns changes or queries will be made. ")
-
 	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
 
 	// Read Viper config before execution
