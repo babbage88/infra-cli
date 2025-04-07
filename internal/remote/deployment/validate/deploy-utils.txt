@@ -1,0 +1,112 @@
+package main
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"os/user"
+)
+
+type ServiceAccountUID interface {
+	string | int64 | int32 | int
+}
+
+func ValidateRemoteUidUnamePair[T ServiceAccountUID](serviceUser string, serviceUid T) error {
+	var uid string
+	switch v := any(serviceUid).(type) {
+	case string:
+		uid = v
+	case int, int32, int64:
+		uid = fmt.Sprintf("%d", v)
+	default:
+		return fmt.Errorf("unsupported UID type")
+	}
+
+	usernameExists := true
+	uidExists := true
+
+	var usernameLookup *user.User
+	userByName, err := user.Lookup(serviceUser)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("user: unknown user %s", serviceUser) {
+			usernameExists = false
+		} else {
+			return fmt.Errorf("unexpected error on username lookup: %w", err)
+		}
+	} else {
+		usernameLookup = userByName
+	}
+
+	var uidLookup *user.User
+	userByID, err := user.LookupId(uid)
+	if err != nil {
+		if err.Error() == fmt.Sprintf("user: unknown userid %s", uid) {
+			uidExists = false
+		} else {
+			return fmt.Errorf("unexpected error on uid lookup: %w", err)
+		}
+	} else {
+		uidLookup = userByID
+	}
+
+	// Logic
+	if !usernameExists && !uidExists {
+		return nil
+	}
+	if usernameExists && uidExists {
+		if usernameLookup.Uid == uid {
+			return &KnownRemoteUserAndIdError{}
+		}
+		return &RemoteUsernameExistsError{}
+	}
+	if usernameExists && !uidExists {
+		return &RemoteUsernameExistsError{}
+	}
+	if uidExists && !usernameExists {
+		return &RemoteUidExistsError{}
+	}
+
+	return nil
+}
+
+// Main entrypoint
+func main() {
+	var ValidateUserUid bool
+	var Username string
+	var Uid int64
+	thisHostname, _ := os.Hostname()
+
+	flag.BoolVar(&ValidateUserUid, "validate-user", false, "Flag when set to true, the Username and Uid pair will be validated")
+	flag.StringVar(&Username, "username", "", "Username to validate")
+	flag.Int64Var(&Uid, "uid", 8888, "UID to validate along with Username")
+	flag.Parse()
+
+	if ValidateUserUid {
+		log.Printf("Validating Username: %s and UID: %d on Host: %s\n", Username, Uid, thisHostname)
+
+		var knownRemoteUserAndIdError *KnownRemoteUserAndIdError
+		var remoteUsernameExistsError *RemoteUsernameExistsError
+		var remoteUidExistsError *RemoteUidExistsError
+
+		err := ValidateRemoteUidUnamePair(Username, Uid)
+		switch {
+		case err == nil:
+			log.Println("Username and UID are a valid pair, neither currently exist")
+			os.Exit(0)
+		case errors.As(err, &knownRemoteUserAndIdError):
+			log.Println("Username and UID both exist and match.")
+			os.Exit(0)
+		case errors.As(err, &remoteUsernameExistsError):
+			log.Println("Username exists, but UID does not match.")
+			os.Exit(2)
+		case errors.As(err, &remoteUidExistsError):
+			log.Println("UID exists, but Username does not match.")
+			os.Exit(1)
+		default:
+			log.Printf("Unexpected error validating user: %s\n", err)
+			os.Exit(99)
+		}
+	}
+}

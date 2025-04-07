@@ -76,7 +76,8 @@ create-builder: check-builder
 build-validate:
 	go build -o ./remote_utils/validate ./internal/remote/deployment/validate
 
-
+utils: build-validate
+	@echo "**** building utils ****"
 buildandpush: check-builder
 	docker buildx use goinfaclibuilder
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(GHCR_REPO)$(tag) . --push

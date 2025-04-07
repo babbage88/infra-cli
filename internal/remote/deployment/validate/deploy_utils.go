@@ -8,16 +8,6 @@ import (
 	"os/user"
 )
 
-type KnownRemoteUserAndIdError struct{}
-
-func (e *KnownRemoteUserAndIdError) Error() string { return "username and UID match an existing user" }
-
-type RemoteUsernameExistsError struct{}
-
-func (e *RemoteUsernameExistsError) Error() string {
-	return "username or UID exists, but they do not match"
-}
-
 func ValidateRemoteUidUnamePair(serviceUser string, serviceUid int64) error {
 	uid := fmt.Sprintf("%d", serviceUid)
 
