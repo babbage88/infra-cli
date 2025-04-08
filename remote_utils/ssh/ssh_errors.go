@@ -52,6 +52,32 @@ func (err SftpInitializationError) Error() string {
 	return err.Message
 }
 
+type SftpFileCreationializationError struct {
+	Message string `json:"message"` // Human readable message for clients
+	Code    int    `json:"-"`       // HTTP Status code. We use `-` to skip json marshaling.
+	Err     error  `json:"-"`       // The original error. Same reason as above.
+}
+
+func SftpFileCreationErrorWrapper(code int, err error, message string) error {
+	return SftpFileCreationializationError{
+		Message: message,
+		Code:    code,
+		Err:     err,
+	}
+}
+
+// Implements the errors.Unwrap interface
+func (err SftpFileCreationializationError) Unwrap() error {
+	return err.Err
+}
+
+func (err SftpFileCreationializationError) Error() string {
+	if err.Err != nil {
+		return err.Err.Error()
+	}
+	return err.Message
+}
+
 type SftpTransferError struct {
 	Message string `json:"message"` // Human readable message for clients
 	Code    int    `json:"-"`       // HTTP Status code. We use `-` to skip json marshaling.

@@ -90,10 +90,33 @@ func (r *RemoteAppDeploymentAgent) Download(src, dst string) error {
 }
 
 func (r *RemoteAppDeploymentAgent) GetSftpClient() (*sftp.Client, error) {
-	sftp, err := r.SshClient.NewSftp()
+	sftpClient, err := r.SshClient.NewSftp()
 	if err != nil {
 		log.Printf("Error initializing sftp client err: %s\n", err.Error())
 		return nil, SftpInitErrorWrapper(503, err, "error preforming upload over sftp")
 	}
-	return sftp, nil
+	return sftpClient, nil
+}
+
+func (r *RemoteAppDeploymentAgent) WriteBytesSftp(destinationPath string, data []byte) (int, error) {
+	sftpClient, err := r.GetSftpClient()
+	if err != nil {
+		log.Printf("Error initializing sftp client err: %s\n", err.Error())
+		return 0, SftpInitErrorWrapper(503, err, "error preforming upload over sftp")
+	}
+
+	log.Printf("Creating sftp client file: %s on remote host \n", destinationPath)
+	f, err := sftpClient.Create(destinationPath)
+	if err != nil {
+		return 0, SftpFileCreationErrorWrapper(504, err, "error creating file via sftp client")
+	}
+
+	bytesWritten, err := f.Write(data)
+	defer f.Close()
+	if err != nil {
+		return 0, SftpFileCreationErrorWrapper(504, err, "error creating file via sftp client")
+	}
+
+	log.Printf("Finished writing file: %s bytes: %d remote host\n", destinationPath, bytesWritten)
+	return bytesWritten, nil
 }
