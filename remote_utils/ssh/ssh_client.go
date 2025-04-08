@@ -1,17 +1,21 @@
 package ssh
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/babbage88/goph"
 	"github.com/pkg/sftp"
 )
 
+const validateUserUidBase string = "validate-user"
+
 type RemoteAppDeploymentAgent struct {
 	SshClient           *goph.Client      `json:"-"`
 	SourceUtilsDir      string            `json:"srcUtilsDir"`
 	DestinationUtilsDir string            `json:"dstUtilsDir"`
 	EnvVars             map[string]string `json:"envVars"`
+	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
 func initializeSshClient(host string, user string, sshKeyPath string, sshPassphrase string) (*goph.Client, error) {
@@ -119,4 +123,27 @@ func (r *RemoteAppDeploymentAgent) WriteBytesSftp(destinationPath string, data [
 
 	log.Printf("Finished writing file: %s bytes: %d remote host\n", destinationPath, bytesWritten)
 	return bytesWritten, nil
+}
+
+func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) error {
+	cmd, err := r.SshClient.Command(remoteCmd, args...)
+	if err != nil {
+		return err
+	}
+
+	// You can set env vars, but the server must be configured to `AcceptEnv line`.
+	cmd.Env = r.GetEnvarSlice()
+
+	log.Printf("Executing remote command cmd: %s args: %v\n", remoteCmd, args)
+	// Run you command.
+	err = cmd.Run()
+	return err
+}
+
+func (r *RemoteAppDeploymentAgent) GetEnvarSlice() []string {
+	argEnvars := make([]string, len(r.EnvVars))
+	for k, v := range r.EnvVars {
+		argEnvars = append(argEnvars, fmt.Sprintf("%s=%s", k, v))
+	}
+	return argEnvars
 }
