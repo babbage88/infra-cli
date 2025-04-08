@@ -1,4 +1,6 @@
 remote_utils/validate-user
+remote_utils/bin/**
+remote_utils/bin/validate-user
 infra-cli
 vendor/
 **default.yaml

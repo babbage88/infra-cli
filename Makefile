@@ -9,7 +9,7 @@ ENV_FILE:=.env
 MIG:=$(shell date '+%m%d%Y.%H%M%S')
 SHELL := /bin/bash
 VERBOSE ?= 1
-export REMOTE_UTILS_DIR:=./remote_utils
+export REMOTE_UTILS_DIR:=./remote_utils/bin
 export VALIDATE_USER_UTIL_SRC:=./internal/remote/deployment/validate
 ifeq ($(VERBOSE),1)
 	V = -v
@@ -74,13 +74,19 @@ check-builder:
 
 create-builder: check-builder
 
-.PHONY: build-validate
+utils-dir:
+	@echo "**** Creating $(REMOTE_UTILS_DIR) ****"
+	@mkdir -p $(REMOTE_UTILS_DIR)
+
 build-validate:
-	@echo "**** building validate-user util bin output: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
+	@echo "**** building validate-user utility outdir: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
 	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC)
 
-utils: build-validate
-	@echo "**** building utils ****"
+utils: utils-dir build-validate
+	@echo "**** Building remote utils ****"
+
+.PHONY: build-validate utils-dir utils
+
 buildandpush: check-builder
 	docker buildx use goinfaclibuilder
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(GHCR_REPO)$(tag) . --push
