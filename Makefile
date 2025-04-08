@@ -22,10 +22,22 @@ sqlc-and-migrations:
 	goose up -v
 	sqlc generate
 
-build:
+
+utils-dir:
+	@echo "**** Creating $(REMOTE_UTILS_DIR) ****"
+	@mkdir -p $(REMOTE_UTILS_DIR)
+
+build-validate:
+	@echo "**** building validate-user utility outdir: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
+	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC)
+
+utils: utils-dir build-validate
+	@echo "**** Building remote utils ****"
+
+build: utils
 	go build $(V) -o $(BIN_NAME) .
 
-build-quiet:
+build-quiet: utils
 	go build -o $(BIN_NAME)
 
 install: build
@@ -36,6 +48,7 @@ install: build
 	mv $(BIN_NAME) $(INSTALL_PATH)
 
 # Add this target to the end of your Makefile
+.PHONY: build-validate utils-dir utils build build-quiet install
 
 # Usage: make release [VERSION=major|minor|patch]
 fetch-tags:
@@ -74,18 +87,6 @@ check-builder:
 
 create-builder: check-builder
 
-utils-dir:
-	@echo "**** Creating $(REMOTE_UTILS_DIR) ****"
-	@mkdir -p $(REMOTE_UTILS_DIR)
-
-build-validate:
-	@echo "**** building validate-user utility outdir: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
-	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC)
-
-utils: utils-dir build-validate
-	@echo "**** Building remote utils ****"
-
-.PHONY: build-validate utils-dir utils
 
 buildandpush: check-builder
 	docker buildx use goinfaclibuilder
