@@ -86,7 +86,6 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 		log.Fatal(err)
 	}
 	// Defer closing the network connection.
-	defer client.Close()
 	return client, err
 }
 
@@ -102,7 +101,6 @@ func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, ds
 		log.Printf("Error initializing ssh client %s\n", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
 	}
-	defer sshClient.Close()
 	remoteDeployAgent := RemoteAppDeploymentAgent{
 		SshClient:           sshClient,
 		SourceUtilsDir:      srcUtilsPath,
@@ -145,6 +143,16 @@ func (r *RemoteAppDeploymentAgent) Upload(src, dst string) error {
 		log.Printf("Error uploading files to remote  src: %s dst: %s err: %s\n", src, dst, err.Error())
 		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
 	}
+	return nil
+}
+
+func (r *RemoteAppDeploymentAgent) UploadBin(src, dst string) error {
+	err := r.SshClient.Upload(src, dst)
+	if err != nil {
+		log.Printf("Error uploading files to remote  src: %s dst: %s err: %s\n", src, dst, err.Error())
+		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
+	}
+	r.RunCommand("chmod", []string{"+x", dst})
 	return nil
 }
 
@@ -201,6 +209,24 @@ func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) e
 	log.Printf("Executing remote command cmd: %s args: %v\n", remoteCmd, args)
 	// Run you command.
 	err = cmd.Run()
+	return err
+}
+
+func (r *RemoteAppDeploymentAgent) RunCommandAndGetOutput(remoteCmd string, args []string) error {
+	cmd, err := r.SshClient.Command(remoteCmd, args...)
+	if err != nil {
+		return err
+	}
+
+	// You can set env vars, but the server must be configured to `AcceptEnv line`.
+	cmd.Env = r.GetEnvarSlice()
+
+	combinedOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return err
+	}
+	fmt.Println(string(combinedOutput))
 	return err
 }
 

@@ -18,10 +18,15 @@ var metaCmd = &cobra.Command{
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
 		rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey("trahdev3", "jtrahan", "remote_utils/bin", "/tmp", rootViperCfg.GetString("ssh_key"), rootViperCfg.GetString("ssh_passphrase"), nil, true, uint(22))
+		defer rclient.SshClient.Close()
 		if err != nil {
 			log.Fatalf("ssh errore: %s\n", err.Error())
 		}
-		err = rclient.RunCommand("ls", []string{"-la"})
+		rclient.UploadBin("remote_utils/bin/validate-user", "/tmp/validate-user")
+		if err != nil {
+			log.Printf("Error uploading files\n")
+		}
+		err = rclient.RunCommandAndGetOutput("ls", []string{"-la"})
 		if err != nil {
 			log.Printf("cmd err: %s\n", err.Error())
 		}
