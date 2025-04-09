@@ -1,11 +1,14 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net"
 
 	"github.com/babbage88/goph"
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 const validateUserUidBase string = "validate-user"
@@ -18,13 +21,67 @@ type RemoteAppDeploymentAgent struct {
 	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
-func initializeSshClient(host string, user string, sshKeyPath string, sshPassphrase string) (*goph.Client, error) {
-	auth, err := goph.Key(sshKeyPath, sshPassphrase)
+func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
+
+	//
+	// If you want to connect to new hosts.
+	// here your should check new connections public keys
+	// if the key not trusted you shuld return an error
+	//
+
+	// hostFound: is host in known hosts file.
+	// err: error if key not in known hosts file OR host in known hosts file but key changed!
+	hostFound, err := goph.CheckKnownHost(host, remote, key, "")
+
+	// Host in known hosts but key mismatch!
+	// Maybe because of MAN IN THE MIDDLE ATTACK!
+	if hostFound && err != nil {
+
+		return err
+	}
+
+	// handshake because public key already exists.
+	if hostFound && err == nil {
+
+		return nil
+	}
+
+	// Ask user to check if he trust the host public key.
+	if askIsHostTrusted(host, key) == false {
+
+		// Make sure to return error on non trusted keys.
+		return errors.New("you typed no, aborted!")
+	}
+
+	// Add the new host to known hosts file.
+	return goph.AddKnownHost(host, remote, key, "")
+}
+
+func initializeSshClient(host string, user string, port uint, sshKeyPath string, sshPassphrase string, agent bool) (*goph.Client, error) {
+	var auth goph.Auth
+	var err error
+	if agent || goph.HasAgent() {
+		auth, err = goph.UseAgent()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+	} else {
+		auth, err = goph.Key(sshKeyPath, sshPassphrase)
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	client, err := goph.New(user, host, auth)
+	client, err := goph.NewConn(&goph.Config{
+		User:     user,
+		Addr:     host,
+		Port:     port,
+		Auth:     auth,
+		Callback: VerifyHost,
+	})
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,12 +90,19 @@ func initializeSshClient(host string, user string, sshKeyPath string, sshPassphr
 	return client, err
 }
 
-func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshPassword string, envVars map[string]string) (*RemoteAppDeploymentAgent, error) {
-	sshClient, err := goph.New(sshUser, hostname, goph.Password(sshPassword))
+func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshPassword string, envVars map[string]string, port uint) (*RemoteAppDeploymentAgent, error) {
+	sshClient, err := goph.NewConn(&goph.Config{
+		User:     sshUser,
+		Addr:     hostname,
+		Port:     port,
+		Auth:     goph.Password(sshPassword),
+		Callback: VerifyHost})
+
 	if err != nil {
 		log.Printf("Error initializing ssh client %s\n", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
 	}
+	defer sshClient.Close()
 	remoteDeployAgent := RemoteAppDeploymentAgent{
 		SshClient:           sshClient,
 		SourceUtilsDir:      srcUtilsPath,
@@ -49,8 +113,8 @@ func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, ds
 	return &remoteDeployAgent, nil
 }
 
-func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshKey, sshPassphrase string, envVars map[string]string) (*RemoteAppDeploymentAgent, error) {
-	sshClient, err := initializeSshClient(hostname, sshUser, sshKey, sshPassphrase)
+func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshKey, sshPassphrase string, envVars map[string]string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
+	sshClient, err := initializeSshClient(hostname, sshUser, port, sshKey, sshPassphrase, agent)
 	if err != nil {
 		log.Printf("Error initializing ssh client %s\n", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")

@@ -7,7 +7,7 @@ import (
 	"log"
 
 	"github.com/babbage88/infra-cli/internal/pretty"
-	"github.com/babbage88/infra-cli/remote_utils/ssh"
+	"github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var metaCmd = &cobra.Command{
 	Short: "Debugging/Development subcommand for Viper/Cobra",
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
-		rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey("trahdev2", "jtrahan", "remote_utils/bin", "/tmp", rootViperCfg.GetString("ssh_key"), rootViperCfg.GetString("ssh_passphrase"), nil)
+		rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey("trahdev3", "jtrahan", "remote_utils/bin", "/tmp", rootViperCfg.GetString("ssh_key"), rootViperCfg.GetString("ssh_passphrase"), nil, true, uint(22))
 		if err != nil {
 			log.Fatalf("ssh errore: %s\n", err.Error())
 		}
