@@ -5,6 +5,8 @@ package cmd
 
 import (
 	"log"
+	"os"
+	"runtime/pprof"
 
 	"github.com/babbage88/infra-cli/internal/pretty"
 	"github.com/babbage88/infra-cli/ssh"
@@ -18,6 +20,22 @@ var metaCmd = &cobra.Command{
 	Short: "Debugging/Development subcommand for Viper/Cobra",
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
+		cpuProfileFile := rootViperCfg.GetString("cpu_profile")
+		var profile *os.File
+		var err error
+
+		if cpuProfileFile != "" {
+			profile, err = createCpuProfile(&cpuProfileFile)
+			if err != nil {
+				log.Fatalln("Error creating profiler", err.Error())
+			}
+			defer func() {
+				pprof.StopCPUProfile()
+				profile.Close()
+				log.Println("Stopped CPU Profile")
+			}()
+		}
+
 		shost := rootViperCfg.GetString("ssh_remote_host")
 		suser := rootViperCfg.GetString("ssh_remote_user")
 		skeypath := rootViperCfg.GetString("ssh_key")

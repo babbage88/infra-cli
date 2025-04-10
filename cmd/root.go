@@ -21,6 +21,7 @@ var (
 	sshKeyPass                              string
 	sshRemoteTargetHost                     string
 	sshRemoteTargetUser                     string
+	cpuProfilePath                          string
 	sshUseAgent                             bool
 	sshPort                                 uint
 	jwtAuthToken                            string
@@ -63,6 +64,9 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
 		"The root domain/zone name for which dns changes or queries will be made. ")
+
+	rootCmd.PersistentFlags().StringVar(&cpuProfilePath, "cpu-profile", "",
+		"File path to create cpu profile for preformance testing.")
 
 	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
 
@@ -107,6 +111,8 @@ func initConfig() {
 	rootViperCfg.BindPFlag("ssh_remote_host", rootCmd.PersistentFlags().Lookup("ssh-remote-host"))
 	rootViperCfg.BindPFlag("ssh_remote_user", rootCmd.PersistentFlags().Lookup("ssh-remote-user"))
 	rootViperCfg.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
+	rootViperCfg.BindPFlag("cpu_profile", rootCmd.PersistentFlags().Lookup("cpu-profile"))
+
 	rootViperCfg.AutomaticEnv()
 
 	apiTokens = rootViperCfg.GetStringMapString("api_tokens")
