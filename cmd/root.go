@@ -19,6 +19,10 @@ import (
 var (
 	sshKeyPath                              string
 	sshKeyPass                              string
+	sshRemoteTargetHost                     string
+	sshRemoteTargetUser                     string
+	sshUseAgent                             bool
+	sshPort                                 uint
 	jwtAuthToken                            string
 	cfgFile, metaCfgFile, dnsCfgFile        string
 	apiTokens                               map[string]string
@@ -60,13 +64,25 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
 		"The root domain/zone name for which dns changes or queries will be made. ")
 
+	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
+
 	rootCmd.PersistentFlags().StringVar(&sshKeyPath, "ssh-key", "",
 		"Path to SSH Key for performing tasks on remote hosts")
 
 	rootCmd.PersistentFlags().StringVar(&sshKeyPass, "ssh-passphrase", "",
 		"Passphrase for ssh-key")
 
-	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
+	rootCmd.PersistentFlags().StringVar(&sshRemoteTargetHost, "ssh-remote-host", "",
+		"The remote hostname or IP to run remote functions")
+
+	rootCmd.PersistentFlags().StringVar(&sshRemoteTargetUser, "ssh-remote-user", "",
+		"Username for remote host connection")
+
+	rootCmd.PersistentFlags().BoolVar(&sshUseAgent, "ssh-use-agent", false,
+		"Use ssh-agent for ssh-key auth.")
+
+	rootCmd.PersistentFlags().UintVar(&sshPort, "ssh-port", uint(22),
+		"Port SSH is listening on the remote host")
 
 	// Read Viper config before execution
 	cobra.OnInitialize(func() {
@@ -86,6 +102,10 @@ func initConfig() {
 	rootViperCfg.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
 	rootViperCfg.BindPFlag("ssh_key", rootCmd.PersistentFlags().Lookup("ssh-key"))
 	rootViperCfg.BindPFlag("ssh_passphrase", rootCmd.PersistentFlags().Lookup("ssh-passphrase"))
+	rootViperCfg.BindPFlag("ssh_use_agent", rootCmd.PersistentFlags().Lookup("ssh-use-agent"))
+	rootViperCfg.BindPFlag("ssh_port", rootCmd.PersistentFlags().Lookup("ssh-port"))
+	rootViperCfg.BindPFlag("ssh_remote_host", rootCmd.PersistentFlags().Lookup("ssh-remote-host"))
+	rootViperCfg.BindPFlag("ssh_remote_user", rootCmd.PersistentFlags().Lookup("ssh-remote-user"))
 	rootViperCfg.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
 	rootViperCfg.AutomaticEnv()
 
