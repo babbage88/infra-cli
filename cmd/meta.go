@@ -7,7 +7,6 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/babbage88/infra-cli/internal/files"
 	"github.com/babbage88/infra-cli/ssh"
@@ -51,9 +50,9 @@ var metaCmd = &cobra.Command{
 		scmd := viper.GetString("meta_sshcmd")
 		extractCmdMap := make(map[string][]string)
 
-		parentDir := filepath.Dir(exctractDir)
-		preExtractCmd := []string{"mkdir", "-p", parentDir}
-		extractCmd := []string{"tar", "-xvzf", tarOutputPath, "-C", parentDir}
+		//parentDir := filepath.Dir(exctractDir)
+		preExtractCmd := []string{"mkdir", "-p", exctractDir}
+		extractCmd := []string{"tar", "-xvzf", tarOutputPath, "-C", exctractDir}
 
 		extractCmdMap[preExtractCmd[0]] = preExtractCmd[1:]
 		extractCmdMap[extractCmd[0]] = extractCmd[1:]

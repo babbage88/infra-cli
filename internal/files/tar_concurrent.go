@@ -75,6 +75,10 @@ func CompressWithWorkers(src string, buf io.Writer) error {
 }
 
 func TarAndGzipFiles(src string, buf io.Writer) error {
+	absSrc, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
 	zr := gzip.NewWriter(buf)
 	defer zr.Close()
 	tw := tar.NewWriter(zr)
@@ -91,7 +95,7 @@ func TarAndGzipFiles(src string, buf io.Writer) error {
 
 	go func() {
 		defer close(files)
-		filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		filepath.WalkDir(absSrc, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				errs <- err
 				return err
@@ -103,7 +107,7 @@ func TarAndGzipFiles(src string, buf io.Writer) error {
 				return err
 			}
 
-			relPath, err := filepath.Rel(src, path)
+			relPath, err := filepath.Rel(absSrc, path)
 			if err != nil {
 				errs <- fmt.Errorf("failed to get relative path: %w", err)
 				return err
