@@ -6,56 +6,56 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 )
 
-func TarAndGzipFiles(src string, buf io.Writer) error {
-	zr := gzip.NewWriter(buf)
-	defer zr.Close()
-	tw := tar.NewWriter(zr)
-	defer tw.Close()
-	// WalkDir to traverse the directory tree
-	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			slog.Error(err.Error())
-			return err
-		}
-		fi, err := d.Info()
-		if err != nil {
-			slog.Error("error retrieving FileInfo", slog.String("file", fi.Name()))
-		}
+/*
+	func TarAndGzipFiles(src string, buf io.Writer) error {
+		zr := gzip.NewWriter(buf)
+		defer zr.Close()
+		tw := tar.NewWriter(zr)
+		defer tw.Close()
+		// WalkDir to traverse the directory tree
+		err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				slog.Error(err.Error())
+				return err
+			}
+			fi, err := d.Info()
+			if err != nil {
+				slog.Error("error retrieving FileInfo", slog.String("file", fi.Name()))
+			}
 
-		header, err := tar.FileInfoHeader(fi, path)
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		header.Name = filepath.ToSlash(relPath)
-		if err := tw.WriteHeader(header); err != nil {
-			return err
-		}
-		if !fi.IsDir() {
-			data, err := os.Open(path)
+			header, err := tar.FileInfoHeader(fi, path)
 			if err != nil {
 				return err
 			}
-			defer data.Close()
-
-			_, err = io.Copy(tw, data)
+			relPath, err := filepath.Rel(src, path)
 			if err != nil {
 				return err
 			}
-		}
-		return nil
+			header.Name = filepath.ToSlash(relPath)
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+			if !fi.IsDir() {
+				data, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer data.Close()
 
-	})
+				_, err = io.Copy(tw, data)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
 
-	return err
-}
+		})
 
+		return err
+	}
+*/
 func ExtractTarGz(gzipStream io.Reader) error {
 	uncompressedStream, err := gzip.NewReader(gzipStream)
 	if err != nil {

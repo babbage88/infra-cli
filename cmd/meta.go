@@ -24,7 +24,7 @@ func compressFiles(src string, tarOutputPath string) {
 	}
 	defer outFile.Close()
 
-	err = files.CompressWithWorkers(src, outFile)
+	err = files.TarAndGzipFiles(src, outFile)
 	if err != nil {
 		log.Fatalf("Error creating tar.gz: %v", err)
 	}
