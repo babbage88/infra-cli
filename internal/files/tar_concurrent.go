@@ -7,116 +7,138 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
-type FileToArchive struct {
-	Path     string
-	RelPath  string
-	FileInfo os.FileInfo
-}
-
-// TarAndGzipFiles creates a tar.gz archive from the given source directory and writes it to the writer.
-// This version is concurrent: it scans files and sends them through a channel to be processed by worker goroutines.
-func TarAndGzipFiles(src string, buf io.Writer) error {
-	absSrc, err := filepath.Abs(src)
+func CreateTarGzWithExcludes(srcDir, outPath string, exclude []string) error {
+	outFile, err := os.Create(outPath)
 	if err != nil {
-		return fmt.Errorf("could not resolve absolute path: %w", err)
+		return fmt.Errorf("creating output file: %w", err)
 	}
+	defer outFile.Close()
 
-	gzw := gzip.NewWriter(buf)
-	defer gzw.Close()
+	gz := gzip.NewWriter(outFile)
+	defer gz.Close()
 
-	tw := tar.NewWriter(gzw)
+	tw := tar.NewWriter(gz)
 	defer tw.Close()
 
-	filesChan := make(chan FileToArchive, 64)
-	var wg sync.WaitGroup
-	var copyErr error
-	var mu sync.Mutex
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		errs    = make(chan error, 1)
+		bufPool = sync.Pool{
+			New: func() any {
+				return make([]byte, 32*1024)
+			},
+		}
+	)
 
-	// Start worker
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for file := range filesChan {
-			if err := addFileToTar(tw, absSrc, file); err != nil {
-				mu.Lock()
-				copyErr = err
-				mu.Unlock()
-				return
+	// Normalize exclude patterns to clean relative paths
+	cleanExcludes := make(map[string]struct{})
+	for _, ex := range exclude {
+		ex = filepath.Clean(ex)
+		cleanExcludes[ex] = struct{}{}
+	}
+
+	isExcluded := func(rel string) bool {
+		parts := strings.Split(rel, string(os.PathSeparator))
+		for _, part := range parts {
+			if _, ok := cleanExcludes[part]; ok {
+				return true
 			}
 		}
-	}()
+		return false
+	}
 
-	// Walk the directory and enqueue files
-	err = filepath.Walk(absSrc, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		relPath, err := filepath.Rel(absSrc, path)
-		if err != nil {
-			return err
-		}
-		// Skip the root
-		if relPath == "." {
+
+		if path == srcDir {
 			return nil
 		}
-		filesChan <- FileToArchive{
-			Path:     path,
-			RelPath:  filepath.ToSlash(relPath),
-			FileInfo: info,
+
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return fmt.Errorf("getting relative path: %w", err)
 		}
+
+		// Skip excluded paths
+		if isExcluded(rel) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		wg.Add(1)
+		go func(path, rel string, info os.FileInfo) {
+			defer wg.Done()
+
+			var link string
+			if info.Mode()&os.ModeSymlink != 0 {
+				link, err = os.Readlink(path)
+				if err != nil {
+					errs <- fmt.Errorf("reading symlink: %w", err)
+					return
+				}
+			}
+
+			header, err := tar.FileInfoHeader(info, link)
+			if err != nil {
+				errs <- fmt.Errorf("creating tar header: %w", err)
+				return
+			}
+			header.Name = rel
+
+			mu.Lock()
+			if err := tw.WriteHeader(header); err != nil {
+				mu.Unlock()
+				errs <- fmt.Errorf("writing tar header: %w", err)
+				return
+			}
+			mu.Unlock()
+
+			if !info.Mode().IsRegular() {
+				return
+			}
+
+			f, err := os.Open(path)
+			if err != nil {
+				errs <- fmt.Errorf("opening file: %w", err)
+				return
+			}
+			defer f.Close()
+
+			buf := bufPool.Get().([]byte)
+			defer bufPool.Put(buf)
+
+			mu.Lock()
+			_, err = io.CopyBuffer(tw, f, buf)
+			mu.Unlock()
+			if err != nil {
+				errs <- fmt.Errorf("copying data: %w", err)
+				return
+			}
+
+			fmt.Println("Added:", rel)
+		}(path, rel, info)
+
 		return nil
 	})
-	close(filesChan)
+
+	if err != nil {
+		return fmt.Errorf("walking path: %w", err)
+	}
+
 	wg.Wait()
+	close(errs)
 
-	if err != nil {
-		return err
-	}
-	if copyErr != nil {
-		return copyErr
-	}
-	return nil
-}
-
-func addFileToTar(tw *tar.Writer, base string, file FileToArchive) error {
-	var link string
-	if file.FileInfo.Mode()&os.ModeSymlink != 0 {
-		var err error
-		link, err = os.Readlink(file.Path)
-		if err != nil {
-			return fmt.Errorf("failed to read symlink %s: %w", file.Path, err)
-		}
-	}
-
-	// Create header
-	hdr, err := tar.FileInfoHeader(file.FileInfo, link)
-	if err != nil {
-		return fmt.Errorf("failed to create tar header for %s: %w", file.Path, err)
-	}
-
-	hdr.Name = file.RelPath
-	hdr.Format = tar.FormatPAX // ensure long names work
-
-	if err := tw.WriteHeader(hdr); err != nil {
-		return fmt.Errorf("error writing tar header for %s: %w", file.Path, err)
-	}
-
-	// Don't copy content for non-regular files
-	if !file.FileInfo.Mode().IsRegular() {
-		return nil
-	}
-
-	f, err := os.Open(file.Path)
-	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", file.Path, err)
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(tw, f); err != nil {
-		return fmt.Errorf("error copying file contents for %s: %w", file.Path, err)
+	if e := <-errs; e != nil {
+		return e
 	}
 
 	return nil

@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"log/slog"
-	"os"
 
 	"github.com/babbage88/infra-cli/internal/files"
 	"github.com/babbage88/infra-cli/ssh"
@@ -13,17 +12,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-func compressFiles(src string, tarOutputPath string) {
+func compressFiles(src string, tarOutputPath string, excludes []string) {
 	slog.Info("Creating tar.gz archive from", "src", src, "tarOutputPath", tarOutputPath)
 
-	outFile, err := os.Create(tarOutputPath)
-	if err != nil {
-		slog.Error("Could not create output file:", "error", err.Error())
-
-	}
-	defer outFile.Close()
-
-	err = files.TarAndGzipFiles(src, outFile)
+	err := files.CreateTarGzWithExcludes(src, tarOutputPath, excludes)
 	if err != nil {
 		slog.Error("Error creating tar.gz", "error", err.Error())
 	}
@@ -60,7 +52,7 @@ var metaCmd = &cobra.Command{
 		baseCommand := parseBaseCommand(scmd)
 		cmdArgs := parseCmdStringArgsToSlice(scmd)
 
-		compressFiles(src, tarOutputPath)
+		compressFiles(src, tarOutputPath, []string{"vendor"})
 
 		slog.Info("Creating new SSH client connnection host:, user: ssh-key: \n", "Host", shost, "User", suser, "ssh-key", skeypath)
 
