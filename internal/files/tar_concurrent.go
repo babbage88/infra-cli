@@ -5,156 +5,118 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
-func CompressWithWorkers(src string, buf io.Writer) error {
-	zr := gzip.NewWriter(buf)
-	defer zr.Close()
-
-	tw := tar.NewWriter(zr)
-	defer tw.Close()
-
-	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			slog.Error("walk error", slog.String("path", path), slog.String("err", err.Error()))
-			return err
-		}
-
-		fi, err := d.Info()
-		if err != nil {
-			slog.Error("info error", slog.String("path", path), slog.String("err", err.Error()))
-			return err
-		}
-
-		// Compute relative path for tar header
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		relPath = filepath.ToSlash(relPath)
-
-		// Skip root
-		if relPath == "." {
-			return nil
-		}
-
-		header, err := tar.FileInfoHeader(fi, "")
-		if err != nil {
-			return err
-		}
-
-		// Set full relative path explicitly
-		header.Name = relPath
-
-		// Use PAX format which handles long paths
-		header.Format = tar.FormatPAX
-
-		if err := tw.WriteHeader(header); err != nil {
-			return err
-		}
-
-		// If it's a file, write contents
-		if !fi.IsDir() {
-			f, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			if _, err := io.Copy(tw, f); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	return err
+type FileToArchive struct {
+	Path     string
+	RelPath  string
+	FileInfo os.FileInfo
 }
 
+// TarAndGzipFiles creates a tar.gz archive from the given source directory and writes it to the writer.
+// This version is concurrent: it scans files and sends them through a channel to be processed by worker goroutines.
 func TarAndGzipFiles(src string, buf io.Writer) error {
 	absSrc, err := filepath.Abs(src)
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+		return fmt.Errorf("could not resolve absolute path: %w", err)
 	}
-	zr := gzip.NewWriter(buf)
-	defer zr.Close()
-	tw := tar.NewWriter(zr)
+
+	gzw := gzip.NewWriter(buf)
+	defer gzw.Close()
+
+	tw := tar.NewWriter(gzw)
 	defer tw.Close()
 
-	type fileEntry struct {
-		header *tar.Header
-		path   string
-		isDir  bool
-	}
+	filesChan := make(chan FileToArchive, 64)
+	var wg sync.WaitGroup
+	var copyErr error
+	var mu sync.Mutex
 
-	files := make(chan fileEntry)
-	errs := make(chan error, 1)
-
+	// Start worker
+	wg.Add(1)
 	go func() {
-		defer close(files)
-		filepath.WalkDir(absSrc, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				errs <- err
-				return err
+		defer wg.Done()
+		for file := range filesChan {
+			if err := addFileToTar(tw, absSrc, file); err != nil {
+				mu.Lock()
+				copyErr = err
+				mu.Unlock()
+				return
 			}
-
-			fi, err := d.Info()
-			if err != nil {
-				errs <- fmt.Errorf("failed to get file info: %w", err)
-				return err
-			}
-
-			relPath, err := filepath.Rel(absSrc, path)
-			if err != nil {
-				errs <- fmt.Errorf("failed to get relative path: %w", err)
-				return err
-			}
-
-			// skip . (root dir)
-			if relPath == "." {
-				return nil
-			}
-
-			header, err := tar.FileInfoHeader(fi, "")
-			if err != nil {
-				errs <- fmt.Errorf("failed to create tar header: %w", err)
-				return err
-			}
-			header.Name = filepath.ToSlash(relPath)
-
-			files <- fileEntry{
-				header: header,
-				path:   path,
-				isDir:  fi.IsDir(),
-			}
-			return nil
-		})
-		errs <- nil // signal walk success
+		}
 	}()
 
-	for entry := range files {
-		if err := tw.WriteHeader(entry.header); err != nil {
-			return fmt.Errorf("error writing tar header: %w", err)
+	// Walk the directory and enqueue files
+	err = filepath.Walk(absSrc, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
+		relPath, err := filepath.Rel(absSrc, path)
+		if err != nil {
+			return err
+		}
+		// Skip the root
+		if relPath == "." {
+			return nil
+		}
+		filesChan <- FileToArchive{
+			Path:     path,
+			RelPath:  filepath.ToSlash(relPath),
+			FileInfo: info,
+		}
+		return nil
+	})
+	close(filesChan)
+	wg.Wait()
 
-		if !entry.isDir {
-			f, err := os.Open(entry.path)
-			if err != nil {
-				return fmt.Errorf("error opening file: %w", err)
-			}
-			_, err = io.Copy(tw, f)
-			f.Close()
-			if err != nil {
-				return fmt.Errorf("error copying file contents: %w", err)
-			}
+	if err != nil {
+		return err
+	}
+	if copyErr != nil {
+		return copyErr
+	}
+	return nil
+}
+
+func addFileToTar(tw *tar.Writer, base string, file FileToArchive) error {
+	var link string
+	if file.FileInfo.Mode()&os.ModeSymlink != 0 {
+		var err error
+		link, err = os.Readlink(file.Path)
+		if err != nil {
+			return fmt.Errorf("failed to read symlink %s: %w", file.Path, err)
 		}
 	}
 
-	if err := <-errs; err != nil {
-		return err
+	// Create header
+	hdr, err := tar.FileInfoHeader(file.FileInfo, link)
+	if err != nil {
+		return fmt.Errorf("failed to create tar header for %s: %w", file.Path, err)
+	}
+
+	hdr.Name = file.RelPath
+	hdr.Format = tar.FormatPAX // ensure long names work
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("error writing tar header for %s: %w", file.Path, err)
+	}
+
+	// Don't copy content for non-regular files
+	if !file.FileInfo.Mode().IsRegular() {
+		return nil
+	}
+
+	f, err := os.Open(file.Path)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", file.Path, err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(tw, f); err != nil {
+		return fmt.Errorf("error copying file contents for %s: %w", file.Path, err)
 	}
 
 	return nil

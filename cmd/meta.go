@@ -4,7 +4,6 @@ Copyright © 2025 Justin Trahan <justin@trahan.dev>
 package cmd
 
 import (
-	"log"
 	"log/slog"
 	"os"
 
@@ -15,20 +14,21 @@ import (
 )
 
 func compressFiles(src string, tarOutputPath string) {
-	log.Printf("Creating tar.gz archive from %s -> %s", src, tarOutputPath)
+	slog.Info("Creating tar.gz archive from", "src", src, "tarOutputPath", tarOutputPath)
 
 	outFile, err := os.Create(tarOutputPath)
 	if err != nil {
-		log.Fatalf("Could not create output file: %v", err)
+		slog.Error("Could not create output file:", "error", err.Error())
+
 	}
 	defer outFile.Close()
 
 	err = files.TarAndGzipFiles(src, outFile)
 	if err != nil {
-		log.Fatalf("Error creating tar.gz: %v", err)
+		slog.Error("Error creating tar.gz", "error", err.Error())
 	}
 
-	log.Printf("Archive created successfully at %s", tarOutputPath)
+	slog.Info("Archive created successfully", "tarOutputPath", tarOutputPath)
 }
 
 // metaCmd represents the meta command
