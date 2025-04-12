@@ -18,6 +18,7 @@ var metaPackCmd = &cobra.Command{
 		if srcDir == "" || outFile == "" {
 			return fmt.Errorf("--src and --out are required")
 		}
+		excludeList = append(excludeList, outFile)
 
 		fmt.Printf("Packing %s into %s\n", srcDir, outFile)
 		if err := files.CreateTarGzWithExcludes(srcDir, outFile, excludeList); err != nil {

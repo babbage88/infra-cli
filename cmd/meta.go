@@ -29,8 +29,8 @@ var metaCmd = &cobra.Command{
 	Short: "Debugging/Development subcommand for Viper/Cobra",
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
-		tarOutputPath := viper.GetString("meta_tar_output")
-		exctractDir := viper.GetString("meta_extract_dir")
+		tarOutputPath := viper.GetString("tar_output")
+		exctractDir := viper.GetString("extract_dir")
 		shost := rootViperCfg.GetString("ssh_remote_host")
 		suser := rootViperCfg.GetString("ssh_remote_user")
 		skeypath := rootViperCfg.GetString("ssh_key")
@@ -40,8 +40,10 @@ var metaCmd = &cobra.Command{
 		src := viper.GetString("meta_src")
 		dst := viper.GetString("meta_dst")
 		scmd := viper.GetString("meta_sshcmd")
+		excludes := viper.GetStringSlice("exclude_dirs")
 		extractCmdMap := make(map[string][]string)
 
+		excludes = append(excludes, tarOutputPath)
 		//parentDir := filepath.Dir(exctractDir)
 		preExtractCmd := []string{"mkdir", "-p", exctractDir}
 		extractCmd := []string{"tar", "-xvzf", tarOutputPath, "-C", exctractDir}
@@ -52,7 +54,7 @@ var metaCmd = &cobra.Command{
 		baseCommand := parseBaseCommand(scmd)
 		cmdArgs := parseCmdStringArgsToSlice(scmd)
 
-		compressFiles(src, tarOutputPath, []string{"vendor"})
+		compressFiles(src, tarOutputPath, excludes)
 
 		slog.Info("Creating new SSH client connnection host:, user: ssh-key: \n", "Host", shost, "User", suser, "ssh-key", skeypath)
 
@@ -98,8 +100,9 @@ func init() {
 		"Remote command to run")
 	metaCmd.PersistentFlags().StringVar(&metaCfgFile, "meta-config", "",
 		"Config file (default is meta-config.yaml)")
-	metaCmd.PersistentFlags().String("meta-tar-output", "output.tar.gz", "Path to write tar.gz archive")
-	metaCmd.PersistentFlags().String("meta-extract-dir", "/tmp/utils", "Path on remote host to extract tar.gz")
+	metaCmd.PersistentFlags().String("tar-output", "output.tar.gz", "Path to write tar.gz archive")
+	metaCmd.PersistentFlags().String("extract-dir", "/tmp/utils", "Path on remote host to extract tar.gz")
+	metaCmd.PersistentFlags().StringSlice("exclude", []string{}, "Paths to exclude from the archive")
 	if metaCfgFile != "" {
 		err := mergeMetaConfigFile()
 		if err != nil {
@@ -115,8 +118,9 @@ func init() {
 	viper.BindPFlag("meta_src", metaCmd.PersistentFlags().Lookup("meta-src"))
 	viper.BindPFlag("meta_dst", metaCmd.PersistentFlags().Lookup("meta-dst"))
 	viper.BindPFlag("meta_sshcmd", metaCmd.PersistentFlags().Lookup("meta-sshcmd"))
-	viper.BindPFlag("meta_tar_output", metaCmd.PersistentFlags().Lookup("meta-tar-output"))
-	viper.BindPFlag("meta_extract_dir", metaCmd.PersistentFlags().Lookup("meta-extract-dir"))
+	viper.BindPFlag("tar_output", metaCmd.PersistentFlags().Lookup("tar-output"))
+	viper.BindPFlag("extract_dir", metaCmd.PersistentFlags().Lookup("extract-dir"))
+	viper.BindPFlag("exclude_dirs", metaCmd.PersistentFlags().Lookup("exlude"))
 
 	cobra.OnInitialize(func() {
 		err := mergeMetaConfigFile()
