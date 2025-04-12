@@ -9,27 +9,6 @@ import (
 	"path/filepath"
 )
 
-/*
-var filesToProcess chan os.FileInfo
-var tarHeaderChan chan *tar.Header
-var origFilePath chan string
-var processedFilePaths chan string
-var errChan chan error
-
-func addFileToArchive(file string, fi os.FileInfo) error {
-	return nil
-}
-
-func processPathWorker(origPath <-chan string, processedFilePaths chan<- string, errChan chan<- error) {
-	srcPath := <-origPath
-	relPath, err := filepath.Rel(srcPath, path)
-		if err != nil {
-			errChan <- err
-		}
-
-}
-*/
-
 func TarAndGzipFiles(src string, buf io.Writer) error {
 	zr := gzip.NewWriter(buf)
 	defer zr.Close()

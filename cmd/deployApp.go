@@ -80,11 +80,10 @@ func init() {
 
 	// Define flags here
 	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "The name of the application")
-	deployCmd.Flags().StringVar(&deployFlags.BinaryDir, "binary-dir", "/etc/appname", "Directory where the installed binary will be placed")
 	deployCmd.Flags().StringArrayVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
 	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
-	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "appname", "Name of the compiled binary")
+	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "appname", "Name of the compiled binary that will be output")
 	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/appname", "Directory to install the binary")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")

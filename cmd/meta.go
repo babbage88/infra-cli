@@ -4,10 +4,10 @@ Copyright © 2025 Justin Trahan <justin@trahan.dev>
 package cmd
 
 import (
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/babbage88/infra-cli/internal/files"
 	"github.com/babbage88/infra-cli/ssh"
@@ -16,7 +16,6 @@ import (
 )
 
 func compressFiles(src string, tarOutputPath string) {
-
 	log.Printf("Creating tar.gz archive from %s -> %s", src, tarOutputPath)
 
 	outFile, err := os.Create(tarOutputPath)
@@ -25,7 +24,7 @@ func compressFiles(src string, tarOutputPath string) {
 	}
 	defer outFile.Close()
 
-	err = files.TarAndGzipFiles(src, outFile)
+	err = files.CompressWithWorkers(src, outFile)
 	if err != nil {
 		log.Fatalf("Error creating tar.gz: %v", err)
 	}
@@ -39,9 +38,8 @@ var metaCmd = &cobra.Command{
 	Short: "Debugging/Development subcommand for Viper/Cobra",
 	Long:  `Subcommand for debugging this Cobra/Viper application`,
 	Run: func(cmd *cobra.Command, args []string) {
-		srcFiles := viper.GetString("meta_src")
 		tarOutputPath := viper.GetString("meta_tar_output")
-
+		exctractDir := viper.GetString("meta_extract_dir")
 		shost := rootViperCfg.GetString("ssh_remote_host")
 		suser := rootViperCfg.GetString("ssh_remote_user")
 		skeypath := rootViperCfg.GetString("ssh_key")
@@ -51,8 +49,19 @@ var metaCmd = &cobra.Command{
 		src := viper.GetString("meta_src")
 		dst := viper.GetString("meta_dst")
 		scmd := viper.GetString("meta_sshcmd")
+		extractCmdMap := make(map[string][]string)
 
-		compressFiles(srcFiles, tarOutputPath)
+		parentDir := filepath.Dir(exctractDir)
+		preExtractCmd := []string{"mkdir", "-p", parentDir}
+		extractCmd := []string{"tar", "-xvzf", tarOutputPath, "-C", parentDir}
+
+		extractCmdMap[preExtractCmd[0]] = preExtractCmd[1:]
+		extractCmdMap[extractCmd[0]] = extractCmd[1:]
+
+		baseCommand := parseBaseCommand(scmd)
+		cmdArgs := parseCmdStringArgsToSlice(scmd)
+
+		compressFiles(src, tarOutputPath)
 
 		slog.Info("Creating new SSH client connnection host:, user: ssh-key: \n", "Host", shost, "User", suser, "ssh-key", skeypath)
 
@@ -66,13 +75,20 @@ var metaCmd = &cobra.Command{
 		if err != nil {
 			slog.Error("SSH error", "error", err.Error())
 		}
-		rclient.UploadBin(tarOutputPath, fmt.Sprint("/tmp/", tarOutputPath))
+
+		err = rclient.UploadBin(tarOutputPath, tarOutputPath)
 		if err != nil {
 			slog.Error("Error Uploading files", "error", err.Error())
 		}
 
-		baseCommand := parseBaseCommand(scmd)
-		cmdArgs := parseCmdStringArgsToSlice(scmd)
+		for k, v := range extractCmdMap {
+			slog.Info("running extract commnds", "cmd", k, "args", v)
+			err = rclient.RunCommandAndGetOutput(k, v)
+			if err != nil {
+				slog.Error("Error running cmd", "error", err.Error())
+			}
+		}
+
 		err = rclient.RunCommandAndGetOutput(baseCommand, cmdArgs)
 		if err != nil {
 			slog.Info("err executing command", "error", err.Error())
@@ -92,7 +108,7 @@ func init() {
 	metaCmd.PersistentFlags().StringVar(&metaCfgFile, "meta-config", "",
 		"Config file (default is meta-config.yaml)")
 	metaCmd.PersistentFlags().String("meta-tar-output", "output.tar.gz", "Path to write tar.gz archive")
-
+	metaCmd.PersistentFlags().String("meta-extract-dir", "/tmp/utils", "Path on remote host to extract tar.gz")
 	if metaCfgFile != "" {
 		err := mergeMetaConfigFile()
 		if err != nil {
@@ -109,6 +125,7 @@ func init() {
 	viper.BindPFlag("meta_dst", metaCmd.PersistentFlags().Lookup("meta-dst"))
 	viper.BindPFlag("meta_sshcmd", metaCmd.PersistentFlags().Lookup("meta-sshcmd"))
 	viper.BindPFlag("meta_tar_output", metaCmd.PersistentFlags().Lookup("meta-tar-output"))
+	viper.BindPFlag("meta_extract_dir", metaCmd.PersistentFlags().Lookup("meta-extract-dir"))
 
 	cobra.OnInitialize(func() {
 		err := mergeMetaConfigFile()
