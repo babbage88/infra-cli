@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-
-	"github.com/spf13/cobra"
+	"time"
 
 	"github.com/babbage88/infra-cli/ssh"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -19,6 +19,8 @@ var clusterSsh = &cobra.Command{
 	Use:   "cluster-ssh",
 	Short: "Execute SSH commands concurrently across multiple hosts",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		start := time.Now()
+
 		// Parse the --hostnames map[string]string into a usable map[string][]string
 		hostMap := parseHostConnMap(hostConnMap)
 		if len(hostMap) == 0 {
@@ -31,9 +33,11 @@ var clusterSsh = &cobra.Command{
 
 		var wg sync.WaitGroup
 		results := make(chan string, 50)
+		totalHosts := 0
 
 		for user, hosts := range hostMap {
 			for _, host := range hosts {
+				totalHosts++
 				wg.Add(1)
 				go func(user, host string) {
 					defer wg.Done()
@@ -52,9 +56,11 @@ var clusterSsh = &cobra.Command{
 						return
 					}
 					args := strings.Fields(cmdToRun)
-					err = agent.RunCommandAndGetOutput(args[0], args[1:])
+					output, err := agent.RunCommandAndCaptureOutput(args[0], args[1:])
 					if err != nil {
 						results <- fmt.Sprintf("[%s@%s] command error: %v", user, host, err)
+					} else {
+						results <- fmt.Sprintf("[%s@%s] success running command. results\n\t\t%s\n\r", user, host, output)
 					}
 				}(user, host)
 			}
@@ -68,6 +74,10 @@ var clusterSsh = &cobra.Command{
 		for r := range results {
 			fmt.Println(r)
 		}
+
+		duration := time.Since(start)
+		fmt.Printf("\n✅ Completed SSH command across %d host(s) in %.2f seconds\n", totalHosts, duration.Seconds())
+
 		return nil
 	},
 }
@@ -88,5 +98,4 @@ func init() {
 	rootCmd.AddCommand(clusterSsh)
 	clusterSsh.Flags().StringVar(&cmdToRun, "cmd", "", "Command to run on all remote hosts (required)")
 	clusterSsh.Flags().StringToStringVar(&hostConnMap, "hostnames", nil, "Map of username to hostnames (e.g. --hostnames root=host1,host2 --hostnames jsmith=host3)")
-
 }

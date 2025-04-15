@@ -22,7 +22,6 @@ type RemoteAppDeploymentAgent struct {
 }
 
 func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
-
 	//
 	// If you want to connect to new hosts.
 	// here your should check new connections public keys
@@ -36,19 +35,16 @@ func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
 	// Host in known hosts but key mismatch!
 	// Maybe because of MAN IN THE MIDDLE ATTACK!
 	if hostFound && err != nil {
-
 		return err
 	}
 
 	// handshake because public key already exists.
 	if hostFound && err == nil {
-
 		return nil
 	}
 
 	// Ask user to check if he trust the host public key.
 	if askIsHostTrusted(host, key) == false {
-
 		// Make sure to return error on non trusted keys.
 		return errors.New("you typed no, aborted!")
 	}
@@ -81,7 +77,6 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 		Auth:     auth,
 		Callback: VerifyHost,
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,8 +90,8 @@ func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, ds
 		Addr:     hostname,
 		Port:     port,
 		Auth:     goph.Password(sshPassword),
-		Callback: VerifyHost})
-
+		Callback: VerifyHost,
+	})
 	if err != nil {
 		log.Printf("Error initializing ssh client %s\n", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
@@ -212,10 +207,10 @@ func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) e
 	return err
 }
 
-func (r *RemoteAppDeploymentAgent) RunCommandAndGetOutput(remoteCmd string, args []string) error {
+func (r *RemoteAppDeploymentAgent) RunCommandAndCaptureOutput(remoteCmd string, args []string) ([]byte, error) {
 	cmd, err := r.SshClient.Command(remoteCmd, args...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// You can set env vars, but the server must be configured to `AcceptEnv line`.
@@ -224,10 +219,9 @@ func (r *RemoteAppDeploymentAgent) RunCommandAndGetOutput(remoteCmd string, args
 	combinedOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Println("Error:", err)
-		return err
+		return nil, err
 	}
-	fmt.Println(string(combinedOutput))
-	return err
+	return combinedOutput, err
 }
 
 func (r *RemoteAppDeploymentAgent) GetEnvarSlice() []string {

@@ -4,6 +4,7 @@ Copyright © 2025 Justin Trahan <justin@trahan.dev>
 package cmd
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/babbage88/infra-cli/internal/files"
@@ -44,7 +45,7 @@ var metaCmd = &cobra.Command{
 		excludeList, _ := cmd.Flags().GetStringSlice("exclude")
 
 		excludeList = append(excludeList, tarOutputPath)
-		//parentDir := filepath.Dir(exctractDir)
+		// parentDir := filepath.Dir(exctractDir)
 		preExtractCmd := []string{"mkdir", "-p", exctractDir}
 		extractCmd := []string{"tar", "-xvzf", tarOutputPath, "-C", exctractDir}
 
@@ -76,16 +77,18 @@ var metaCmd = &cobra.Command{
 
 		for k, v := range extractCmdMap {
 			slog.Info("running extract commnds", "cmd", k, "args", v)
-			err = rclient.RunCommandAndGetOutput(k, v)
+			combinedOutput, err := rclient.RunCommandAndCaptureOutput(k, v)
 			if err != nil {
 				slog.Error("Error running cmd", "error", err.Error())
 			}
+			fmt.Println(combinedOutput)
 		}
 
-		err = rclient.RunCommandAndGetOutput(baseCommand, cmdArgs)
+		cmdOut, err := rclient.RunCommandAndCaptureOutput(baseCommand, cmdArgs)
 		if err != nil {
 			slog.Info("err executing command", "error", err.Error())
 		}
+		fmt.Println(cmdOut)
 		slog.Info("Success executin upload and command", "files", tarOutputPath, "command", scmd)
 	},
 }
