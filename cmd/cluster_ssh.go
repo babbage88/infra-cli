@@ -19,8 +19,9 @@ var (
 )
 
 var clusterSsh = &cobra.Command{
-	Use:   "cluster-ssh",
-	Short: "Execute SSH commands concurrently across multiple hosts",
+	Use:     "cluster-ssh",
+	Aliases: []string{"cssh"},
+	Short:   "Execute SSH commands concurrently across multiple hosts",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		start := time.Now()
 
