@@ -71,6 +71,7 @@ type DeployFlags struct {
 	SourceDir        string            `mapstructure:"source-dir"`
 	SourceExcludes   []string          `mapstructure:"exclude-files"`
 	RemoteDeployment bool              `mapstructure:"remote-deployment"`
+	DeployBinary     bool              `mapstructure:"deploy-binary"`
 }
 
 var deployFlags DeployFlags
@@ -101,6 +102,7 @@ func init() {
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
+	deployCmd.Flags().BoolVar(&deployFlags.DeployBinary, "deploy-binary", false, "Deploy a binary which has already been built.")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", curUser, "Remote SSH user to connect with")
 	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude durign build")
 
