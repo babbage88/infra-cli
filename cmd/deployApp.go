@@ -3,29 +3,42 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 
 	"github.com/babbage88/goph"
+	"github.com/babbage88/infra-cli/internal/files"
+	"github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-func startSshClient(host string, user string, sshKeyPath string, sshPassphrase string) (*goph.Client, error) {
-	auth, err := goph.Key(sshKeyPath, sshPassphrase)
-	if err != nil {
-		log.Fatal(err)
-	}
+const (
+	deployUtilsPath      string = "remote_utils/bin"
+	deployUtilsTar       string = "remote_utils.tar.gz"
+	remoteUtilsPath      string = "/tmp/utils"
+	validateUserUtilPath string = "remote_utils/validate-user"
+)
 
-	client, err := goph.New(user, host, auth)
+func startSshClient() (*ssh.RemoteAppDeploymentAgent, error) {
+	rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey(
+		deployFlags.RemoteHostName,
+		deployFlags.RemoteSshUser,
+		deployUtilsPath,
+		remoteUtilsPath,
+		rootViperCfg.GetString("ssh_key"),
+		rootViperCfg.GetString("ssh_passphrase"),
+		deployFlags.EnvVars,
+		rootViperCfg.GetBool("ssh_use_agent"),
+		rootViperCfg.GetUint("ssh_port"))
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Error initializing ssh client", slog.String("error", err.Error()))
+		return nil, err
 	}
-	// Defer closing the network connection.
-	defer client.Close()
-	return client, err
+	return rclient, err
 }
 
 func getCurrentUserName() (string, error) {
@@ -45,23 +58,22 @@ var deployCmd = &cobra.Command{
 
 // Struct for storing deployment flags
 type DeployFlags struct {
-	RemoteHostName   string   `mapstructure:"remote-host"`
-	RemoteSshUser    string   `mapstructure:"remote-ssh-user"`
-	AppName          string   `mapstructure:"app-name"`
-	BinaryDir        string   `mapstructure:"binary-dir"`
-	EnvVars          []string `mapstructure:"env-vars"`
-	ServiceUser      string   `mapstructure:"service-user"`
-	ServiceUid       int64    `mapstructure:"service-uid"`
-	BinaryName       string   `mapstructure:"binary-name"`
-	InstallDir       string   `mapstructure:"install-dir"`
-	SystemdDir       string   `mapstructure:"systemd-dir"`
-	SourceDir        string   `mapstructure:"source-dir"`
-	RemoteDeployment bool     `mapstructure:"remote-deployment"`
+	RemoteHostName   string            `mapstructure:"remote-host"`
+	RemoteSshUser    string            `mapstructure:"remote-ssh-user"`
+	AppName          string            `mapstructure:"app-name"`
+	BinaryDir        string            `mapstructure:"binary-dir"`
+	EnvVars          map[string]string `mapstructure:"env-vars"`
+	ServiceUser      string            `mapstructure:"service-user"`
+	ServiceUid       int64             `mapstructure:"service-uid"`
+	BinaryName       string            `mapstructure:"binary-name"`
+	InstallDir       string            `mapstructure:"install-dir"`
+	SystemdDir       string            `mapstructure:"systemd-dir"`
+	SourceDir        string            `mapstructure:"source-dir"`
+	SourceExcludes   []string          `mapstructure:"exclude-files"`
+	RemoteDeployment bool              `mapstructure:"remote-deployment"`
 }
 
 var deployFlags DeployFlags
-
-const validateUserUtilPath string = "remote_utils/validate-user"
 
 func (d *DeployFlags) copyUserValidateToRemote(client *goph.Client) error {
 	err := client.Upload(validateUserUtilPath, "/tmp/validate-user")
@@ -80,7 +92,7 @@ func init() {
 
 	// Define flags here
 	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "The name of the application")
-	deployCmd.Flags().StringArrayVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
+	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
 	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
 	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "appname", "Name of the compiled binary that will be output")
@@ -90,6 +102,7 @@ func init() {
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", curUser, "Remote SSH user to connect with")
+	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude durign build")
 
 	// Bind the flags with viper
 	viper.BindPFlags(deployCmd.Flags())
@@ -108,13 +121,33 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
+
 		default:
 			sourceAbsoluteDir = filepath.Dir(deployFlags.SourceDir)
+		}
+
+		agent, err := startSshClient()
+		if err != nil {
+			return fmt.Errorf("error initializing ssh client %w", err)
 		}
 
 		sourceBaseName := filepath.Base(sourceAbsoluteDir)
 		log.Printf("Using %s for app-name", sourceBaseName)
 		deployFlags.AppName = sourceBaseName
+		srcFilesTarName := fmt.Sprintf("%s.tar.gz", deployFlags.AppName)
+
+		files.CreateTarGzWithExcludes(sourceAbsoluteDir, srcFilesTarName, deployFlags.SourceExcludes)
+		files.CreateTarGzWithExcludes(deployUtilsPath, deployUtilsTar, []string{""})
+
+		err = agent.Upload(srcFilesTarName, deployFlags.InstallDir)
+		if err != nil {
+			return fmt.Errorf("error uploading source tar %w", err)
+		}
+
+		err = agent.Upload(deployUtilsTar, remoteUtilsPath)
+		if err != nil {
+			return fmt.Errorf("error uploading remote deplouy utils tar %w", err)
+		}
 	}
 
 	return err
@@ -146,13 +179,13 @@ func deployServiceOnLocal(cmd *cobra.Command, args []string) error {
 }
 
 func createUserOnRemote(serviceUser string, serviceUid int64) error {
-	client, err := startSshClient(deployFlags.RemoteHostName, deployFlags.RemoteSshUser, rootViperCfg.GetString("ssh_key"), rootViperCfg.GetString("ssh_passphrase"))
+	client, err := startSshClient()
 	if err != nil {
 		log.Printf("Error initializing ssh-client err: %s\n", err.Error())
 		return err
 	}
 
-	createUserCmd, err := client.Command("useradd", "-m", serviceUser)
+	createUserCmd, err := client.SshClient.Command("useradd", "-m", serviceUser)
 	if err := createUserCmd.Run(); err != nil {
 		log.Printf("Failed to create user: %s err: %s\n", serviceUser, err.Error())
 		return fmt.Errorf("failed to create user: %v", err)
@@ -276,11 +309,12 @@ WantedBy=multi-user.target
 	return nil
 }
 
-func formatEnvVars(envVars []string) string {
+func formatEnvVars(envVars map[string]string) string {
 	// Format environment variables for systemd unit file
 	var formattedVars []string
-	for _, envVar := range envVars {
-		formattedVars = append(formattedVars, fmt.Sprintf("'%s'", envVar))
+	for key, value := range envVars {
+		envLine := fmt.Sprintf(`Environment="%s=%s"`, key, value)
+		formattedVars = append(formattedVars, envLine)
 	}
 	return fmt.Sprintf("%s", formattedVars)
 }
