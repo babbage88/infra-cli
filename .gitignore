@@ -1,4 +1,5 @@
 output.tar.gz
+lxc_batch.yaml
 proxmox.yaml
 remote_utils/validate-user
 remote_utils/bin/**
