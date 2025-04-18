@@ -19,7 +19,7 @@ func CreateLxcContainer(auth Auth, container LxcContainer) error {
 	data.Set("vmid", fmt.Sprintf("%d", container.VmId))
 	data.Set("hostname", container.Hostname)
 	data.Set("password", container.Password)
-	data.Set("ostemplate", container.Ostemplate)
+	data.Set("ostemplate", container.OsTemplate)
 	data.Set("storage", container.Storage)
 	data.Set("rootfs", container.RootFsSize)
 	data.Set("memory", fmt.Sprintf("%d", container.Memory))

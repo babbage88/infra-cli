@@ -28,7 +28,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		newLxcRequest.VmId = viper.GetInt("vmid")
 		newLxcRequest.Node = viper.GetString("pve_node")
 		newLxcRequest.Password = viper.GetString("lxc_password")
-		newLxcRequest.Ostemplate = viper.GetString("ostemplate")
+		newLxcRequest.OsTemplate = viper.GetString("ostemplate")
 		newLxcRequest.Storage = viper.GetString("storage")
 		newLxcRequest.RootFsSize = viper.GetString("rootfs_size")
 		newLxcRequest.Memory = viper.GetInt("memory")
@@ -40,6 +40,16 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		newLxcRequest.Unprivileged = viper.GetInt("unprivileged")
 		newLxcRequest.Start = viper.GetInt("start")
 		newLxcRequest.Console = viper.GetInt("console")
+
+		newLxcRequest.SshPublicKeys = viper.GetString("ssh_public_keys")
+		if strings.HasPrefix(newLxcRequest.SshPublicKeys, "@") {
+			filePath := strings.TrimPrefix(newLxcRequest.SshPublicKeys, "@")
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				log.Fatalf("Failed to read ssh public keys file: %v", err)
+			}
+			newLxcRequest.SshPublicKeys = string(content)
+		}
 
 		fmt.Println("Creating LXC container...")
 		err := proxmox.CreateLxcContainer(proxmoxLxcAuth, newLxcRequest)
@@ -64,6 +74,7 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().String("pve-node", "", "Proxmox node name")
 	proxmoxLxcCreateCmd.Flags().String("lxc-password", "", "Container root password")
 	proxmoxLxcCreateCmd.Flags().String("ostemplate", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", "OS template")
+	proxmoxLxcCreateCmd.Flags().String("ssh-public-keys", "", "Authorized SSH public keys (as string or @filepath)")
 	proxmoxLxcCreateCmd.Flags().String("storage", "local-lvm", "Storage for container")
 	proxmoxLxcCreateCmd.Flags().String("rootfs-size", "9G", "Root filesystem size")
 	proxmoxLxcCreateCmd.Flags().Int("memory", 1024, "Memory in MB")

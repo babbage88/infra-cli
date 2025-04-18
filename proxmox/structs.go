@@ -11,7 +11,7 @@ type LxcContainer struct {
 	VmId          int    `json:"vmid"`       // Required
 	Hostname      string `json:"hostname"`   // Required
 	Password      string `json:"password"`   // Required if not using SSH key
-	Ostemplate    string `json:"ostemplate"` // Required (e.g., "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst")
+	OsTemplate    string `json:"ostemplate"` // Required (e.g., "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst")
 	Storage       string `json:"storage"`    // Required (storage ID for rootfs)
 	RootFsSize    string `json:"rootfs"`     // Required (e.g., "8G")
 	Memory        int    `json:"memory"`     // RAM in MB
