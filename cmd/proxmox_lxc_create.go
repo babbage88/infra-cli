@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -17,31 +16,64 @@ var newLxcRequest proxmox.LxcContainer
 var proxmoxLxcAuth proxmox.Auth
 
 var proxmoxLxcCreateCmd = &cobra.Command{
-	Use:     "create-lxc",
-	Aliases: []string{"new-lxc", "create", "new"},
+	Use:     "create",
+	Aliases: []string{"new-lxc", "create-lxc", "new"},
 	Short:   "Create a new LXC container on a Proxmox node",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Bind viper values into the struct manually
-		proxmoxLxcAuth.Host = viper.GetString("host_url")
-		proxmoxLxcAuth.ApiToken = viper.GetString("api_token")
+		localViper := viper.New()
+		// Step 1: Load config file first
+		cfgFile, _ := cmd.Flags().GetString("config-file")
+		if cfgFile != "" {
+			err := loadProxmoxConfigFile(cfgFile, localViper)
 
-		newLxcRequest.VmId = viper.GetInt("vmid")
-		newLxcRequest.Node = viper.GetString("pve_node")
-		newLxcRequest.Password = viper.GetString("lxc_password")
-		newLxcRequest.OsTemplate = viper.GetString("ostemplate")
-		newLxcRequest.Storage = viper.GetString("storage")
-		newLxcRequest.RootFsSize = viper.GetString("rootfs_size")
-		newLxcRequest.Memory = viper.GetInt("memory")
-		newLxcRequest.Swap = viper.GetInt("swap")
-		newLxcRequest.Cores = viper.GetInt("cores")
-		newLxcRequest.CpuLimit = viper.GetInt("cpu_limit")
-		newLxcRequest.CpuUnits = viper.GetInt("cpu_units")
-		newLxcRequest.Net0 = viper.GetString("net0")
-		newLxcRequest.Unprivileged = viper.GetInt("unprivileged")
-		newLxcRequest.Start = viper.GetInt("start")
-		newLxcRequest.Console = viper.GetInt("console")
+			if err != nil {
+				log.Fatalf("Failed to load config: %v", err)
+			}
+		}
+		fmt.Println("DEBUG: Viper config loaded:", localViper.AllSettings())
 
-		newLxcRequest.SshPublicKeys = viper.GetString("ssh_public_keys")
+		// Step 2: Bind flags AFTER config is loaded
+		bindLocalFlags(cmd, localViper)
+
+		// Bind vp. values into the struct manually
+		proxmoxLxcAuth.Host = localViper.GetString("host_url")
+		proxmoxLxcAuth.ApiToken = localViper.GetString("api_token")
+
+		newLxcRequest.VmId = localViper.GetInt("vmid")
+		newLxcRequest.Node = localViper.GetString("pve_node")
+		newLxcRequest.Password = localViper.GetString("lxc_password")
+		newLxcRequest.OsTemplate = localViper.GetString("ostemplate")
+		newLxcRequest.Storage = localViper.GetString("storage")
+		newLxcRequest.RootFsSize = localViper.GetString("rootfs_size")
+		newLxcRequest.Memory = localViper.GetInt("memory")
+		newLxcRequest.Swap = localViper.GetInt("swap")
+		newLxcRequest.Cores = localViper.GetInt("cores")
+		newLxcRequest.CpuLimit = localViper.GetInt("cpu_limit")
+		newLxcRequest.CpuUnits = localViper.GetInt("cpu_units")
+		newLxcRequest.Net0 = localViper.GetString("net0")
+
+		newLxcRequest.Arch = localViper.GetString("arch")
+		newLxcRequest.Cmode = localViper.GetString("cmode")
+
+		if localViper.GetBool("start") {
+			newLxcRequest.Start = "1"
+		} else {
+			newLxcRequest.Start = "0"
+		}
+
+		if localViper.GetBool("console") {
+			newLxcRequest.Console = "1"
+		} else {
+			newLxcRequest.Console = "0"
+		}
+
+		if localViper.GetBool("unprivileged") {
+			newLxcRequest.Unprivileged = "1"
+		} else {
+			newLxcRequest.Unprivileged = "0"
+		}
+
+		newLxcRequest.SshPublicKeys = localViper.GetString("ssh_public_keys")
 		if strings.HasPrefix(newLxcRequest.SshPublicKeys, "@") {
 			filePath := strings.TrimPrefix(newLxcRequest.SshPublicKeys, "@")
 			content, err := os.ReadFile(filePath)
@@ -52,7 +84,8 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		}
 
 		fmt.Println("Creating LXC container...")
-		err := proxmox.CreateLxcContainer(proxmoxLxcAuth, newLxcRequest)
+		params := newLxcRequest.ToFormParams()
+		err := proxmox.CreateLXCContainer(proxmoxLxcAuth.Host, proxmoxLxcAuth.ApiToken, newLxcRequest.Node, params)
 		if err != nil {
 			log.Fatalf("Error creating container: %v", err)
 		}
@@ -83,50 +116,44 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().Int("cpu-limit", 0, "CPU limit")
 	proxmoxLxcCreateCmd.Flags().Int("cpu-units", 1024, "CPU weight")
 	proxmoxLxcCreateCmd.Flags().String("net0", "name=eth0,bridge=vmbr0,ip=dhcp,type=veth", "Network config")
-	proxmoxLxcCreateCmd.Flags().Int("unprivileged", 1, "Use unprivileged container (1=yes, 0=no)")
-	proxmoxLxcCreateCmd.Flags().Int("start", 1, "Start after create (1=yes, 0=no)")
-	proxmoxLxcCreateCmd.Flags().Int("console", 1, "Attach console (1=yes, 0=no)")
+	proxmoxLxcCreateCmd.Flags().Bool("unprivileged", true, "Use unprivileged container")
+	proxmoxLxcCreateCmd.Flags().Bool("start", true, "Start after create")
+	proxmoxLxcCreateCmd.Flags().Bool("console", true, "Attach console")
 
-	// Bind all flags to viper
-	viperBindFlags(proxmoxLxcCreateCmd)
-	proxCfgPath := viper.GetString("config-file")
-	if proxCfgPath != "" {
-		err := loadProxmoxConfigFile(proxCfgPath)
-		if err != nil {
-			slog.Error("Error loading config-file", slog.String("path", proxCfgPath), "error", err.Error())
-			os.Exit(1)
-		}
-	}
 }
 
-func viperBindFlags(cmd *cobra.Command) {
+func bindLocalFlags(cmd *cobra.Command, vp *viper.Viper) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		viperKey := strings.ReplaceAll(f.Name, "-", "_")
-		_ = viper.BindPFlag(viperKey, f)
+		key := strings.ReplaceAll(f.Name, "-", "_")
+		_ = vp.BindPFlag(key, f)
 	})
 }
 
-func loadProxmoxConfigFile(path string) error {
-	viper.SetConfigFile(path)
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+func loadProxmoxConfigFile(path string, vp *viper.Viper) error {
+	if path != "" {
+		vp.SetConfigFile(path)
+		if err := vp.ReadInConfig(); err != nil {
+			return fmt.Errorf("failed to read config file: %w", err)
+		}
+		apiCheck := vp.GetString("api_token")
+		err := validateProxmoxApiToken(apiCheck, vp)
+		if err != nil {
+			return fmt.Errorf("error validatin api token %w", err)
+		}
+		return nil
 	}
-	apiCheck := viper.GetString("api_token")
-	err := validateProxmoxApiToken(apiCheck)
-	if err != nil {
-		return fmt.Errorf("error validatin api token %w", err)
-	}
+
 	return nil
 }
 
-func validateProxmoxApiToken(apiCheck string) error {
+func validateProxmoxApiToken(apiCheck string, vp *viper.Viper) error {
 	if apiCheck == "" {
 		apiTokenFromRoot := rootViperCfg.GetString("proxmox_api_token")
 		switch len(apiTokenFromRoot) {
 		case 0:
 			return fmt.Errorf("no proxmox api token supplied")
 		default:
-			viper.Set("api_token", apiTokenFromRoot)
+			vp.Set("api_token", apiTokenFromRoot)
 			return nil
 		}
 	} else {
