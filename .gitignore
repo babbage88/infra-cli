@@ -1,4 +1,5 @@
 output.tar.gz
+proxmox.yaml
 remote_utils/validate-user
 remote_utils/bin/**
 remote_utils/bin/validate-user
