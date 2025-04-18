@@ -40,6 +40,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		proxmoxLxcAuth.ApiToken = localViper.GetString("api_token")
 
 		newLxcRequest.VmId = localViper.GetInt("vmid")
+		newLxcRequest.Hostname = localViper.GetString("lxc_hostname")
 		newLxcRequest.Node = localViper.GetString("pve_node")
 		newLxcRequest.Password = localViper.GetString("lxc_password")
 		newLxcRequest.OsTemplate = localViper.GetString("ostemplate")
@@ -105,6 +106,7 @@ func init() {
 	// LXC flags
 	proxmoxLxcCreateCmd.Flags().Int("vmid", 9090, "Container VM ID")
 	proxmoxLxcCreateCmd.Flags().String("pve-node", "", "Proxmox node name")
+	proxmoxLxcCreateCmd.Flags().String("lxc-hostname", "", "Hostname for new lxc container")
 	proxmoxLxcCreateCmd.Flags().String("lxc-password", "", "Container root password")
 	proxmoxLxcCreateCmd.Flags().String("ostemplate", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", "OS template")
 	proxmoxLxcCreateCmd.Flags().String("ssh-public-keys", "", "Authorized SSH public keys (as string or @filepath)")

@@ -46,6 +46,9 @@ func (lxc *LxcContainer) ToFormParams() map[string]string {
 	if lxc.VmId != 0 {
 		params["vmid"] = fmt.Sprintf("%d", lxc.VmId)
 	}
+	if lxc.Hostname != "" {
+		params["hostname"] = lxc.Hostname
+	}
 	if lxc.Password != "" {
 		params["password"] = lxc.Password
 	}
