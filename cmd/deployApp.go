@@ -69,6 +69,7 @@ type DeployFlags struct {
 	InstallDir       string            `mapstructure:"install-dir"`
 	SystemdDir       string            `mapstructure:"systemd-dir"`
 	SourceDir        string            `mapstructure:"source-dir"`
+	SourceBin        string            `mapstructure:"source-bin"`
 	SourceExcludes   []string          `mapstructure:"exclude-files"`
 	RemoteDeployment bool              `mapstructure:"remote-deployment"`
 	DeployBinary     bool              `mapstructure:"deploy-binary"`
@@ -100,6 +101,7 @@ func init() {
 	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/appname", "Directory to install the binary")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
+	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", ".", "Source Binary to install to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
 	deployCmd.Flags().BoolVar(&deployFlags.DeployBinary, "deploy-binary", false, "Deploy a binary which has already been built.")
@@ -125,7 +127,7 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 			}
 
 		default:
-			sourceAbsoluteDir = filepath.Dir(deployFlags.SourceDir)
+			sourceAbsoluteDir = filepath.Dir(deployFlags.SourceBin)
 		}
 
 		agent, err := startSshClient()
