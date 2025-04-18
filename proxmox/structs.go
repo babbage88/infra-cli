@@ -63,8 +63,6 @@ func (lxc *LxcContainer) ToFormParams() map[string]string {
 	}
 	if lxc.RootFsSize != "" && lxc.Storage != "" {
 		params["rootfs"] = fmt.Sprintf("%s:%s", lxc.Storage, lxc.RootFsSize)
-
-		//params["rootfs"] = fmt.Sprintf("%s:vm-%d-disk-0,size=%s", lxc.Storage, lxc.VmId, lxc.RootFsSize)
 	}
 	if lxc.Memory != 0 {
 		params["memory"] = fmt.Sprintf("%d", lxc.Memory)

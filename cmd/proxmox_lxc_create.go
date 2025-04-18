@@ -111,7 +111,7 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().String("ostemplate", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", "OS template")
 	proxmoxLxcCreateCmd.Flags().String("ssh-public-keys", "", "Authorized SSH public keys (as string or @filepath)")
 	proxmoxLxcCreateCmd.Flags().String("storage", "local-lvm", "Storage for container")
-	proxmoxLxcCreateCmd.Flags().String("rootfs-size", "9G", "Root filesystem size")
+	proxmoxLxcCreateCmd.Flags().String("rootfs-size", "9", "Root filesystem size in GB")
 	proxmoxLxcCreateCmd.Flags().Int("memory", 1024, "Memory in MB")
 	proxmoxLxcCreateCmd.Flags().Int("swap", 512, "Swap in MB")
 	proxmoxLxcCreateCmd.Flags().Int("cores", 1, "CPU cores")
