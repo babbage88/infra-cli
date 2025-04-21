@@ -37,7 +37,7 @@ type LxcContainer struct {
 	Features      string `json:"features,omitempty"`        // Comma-separated list
 	Startup       string `json:"startup,omitempty"`         // Startup order string
 	Tags          string `json:"tags,omitempty"`            // Comma-separated tags
-	SshPublicKeys string `json:"ssh-public-keys,omitempty"` // SSH keys string
+	SshPublicKeys string `json:"ssh_public_keys,omitempty"` // SSH keys string
 }
 
 func (lxc *LxcContainer) ToFormParams() map[string]string {
