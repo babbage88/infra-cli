@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/babbage88/infra-cli/proxmox"
@@ -74,15 +73,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			newLxcRequest.Unprivileged = "0"
 		}
 
-		newLxcRequest.SshPublicKeys = localViper.GetString("ssh_public_keys")
-		if strings.HasPrefix(newLxcRequest.SshPublicKeys, "@") {
-			filePath := strings.TrimPrefix(newLxcRequest.SshPublicKeys, "@")
-			content, err := os.ReadFile(filePath)
-			if err != nil {
-				log.Fatalf("Failed to read ssh public keys file: %v", err)
-			}
-			newLxcRequest.SshPublicKeys = string(content)
-		}
+		newLxcRequest.SshPublicKeys = localViper.GetStringSlice("ssh_public_keys")
 
 		fmt.Println("Creating LXC container...")
 		params := newLxcRequest.ToFormParams()
@@ -109,7 +100,7 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().String("lxc-hostname", "", "Hostname for new lxc container")
 	proxmoxLxcCreateCmd.Flags().String("lxc-password", "", "Container root password")
 	proxmoxLxcCreateCmd.Flags().String("ostemplate", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", "OS template")
-	proxmoxLxcCreateCmd.Flags().String("ssh-public-keys", "", "Authorized SSH public keys (as string or @filepath)")
+	proxmoxLxcCreateCmd.Flags().StringSlice("ssh-public-keys", nil, "Authorized SSH public keys")
 	proxmoxLxcCreateCmd.Flags().String("storage", "local-lvm", "Storage for container")
 	proxmoxLxcCreateCmd.Flags().String("rootfs-size", "9", "Root filesystem size in GB")
 	proxmoxLxcCreateCmd.Flags().Int("memory", 1024, "Memory in MB")

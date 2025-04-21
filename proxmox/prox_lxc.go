@@ -41,3 +41,26 @@ func CreateLXCContainer(host, token, node string, params map[string]string) erro
 	log.Println("Container created successfully")
 	return nil
 }
+
+func (l *LxcContainer) ParseSshPublicKeySlice() (string, error) {
+	var sshKeysParam strings.Builder
+
+	if len(l.SshPublicKeys) < 1 {
+		return "", fmt.Errorf("empty slice: no ssh keys provided")
+	}
+
+	if len(l.SshPublicKeys) == 1 {
+		return l.SshPublicKeys[0], nil
+	}
+
+	lastSshKey := len(l.SshPublicKeys) - 1
+	lastSshKeyItem := l.SshPublicKeys[lastSshKey]
+	allButLastKey := l.SshPublicKeys[:lastSshKey]
+
+	for _, value := range allButLastKey {
+		sshKeysParam.WriteString(value)
+		sshKeysParam.WriteString("\n")
+	}
+	sshKeysParam.WriteString(lastSshKeyItem)
+	return sshKeysParam.String(), nil
+}

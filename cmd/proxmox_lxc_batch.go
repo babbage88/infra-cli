@@ -45,6 +45,7 @@ var createBatchCmd = &cobra.Command{
 		// Create each container
 		for _, lxc := range lxcContainers {
 			fmt.Printf("Creating LXC container %d...\n", lxc.VmId)
+			fmt.Printf("SshPublicKeys: %s\n", lxc.SshPublicKeys)
 			err := proxmox.CreateLXCContainer(localViper.GetString("host_url"), localViper.GetString("api_token"), lxc.Node, lxc.ToFormParams())
 			if err != nil {
 				log.Fatalf("Error creating container: %v", err)
