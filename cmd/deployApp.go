@@ -10,18 +10,28 @@ import (
 	"path/filepath"
 
 	"github.com/babbage88/goph"
-	"github.com/babbage88/infra-cli/internal/files"
+	"github.com/babbage88/infra-cli/internal/deployment/validate"
 	"github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 const (
-	deployUtilsPath      string = "remote_utils/bin"
-	deployUtilsTar       string = "remote_utils.tar.gz"
-	remoteUtilsPath      string = "/tmp/utils"
-	validateUserUtilPath string = "remote_utils/validate-user"
+	deployUtilsPath           string = "remote_utils/bin"
+	deployUtilsTar            string = "remote_utils.tar.gz"
+	remoteUtilsPath           string = "/tmp/utils"
+	validateUserUtilPath      string = "remote_utils/validate-user"
+	remoteValidateUserBaseCmd string = "/tmp/utils/remote_utils/validate-user"
+	mkdirCmdBase              string = "mkdir"
+	mkdirArgs                 string = "-p"
 )
+
+func mkdirArgsWithPath(path string) []string {
+	retVal := make([]string, 0, 2)
+	retVal = append(retVal, mkdirArgs)
+	retVal = append(retVal, path)
+	return retVal
+}
 
 func startSshClient() (*ssh.RemoteAppDeploymentAgent, error) {
 	rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey(
@@ -116,18 +126,18 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 	var err error = nil
 	// 1. Validate input
 	if deployFlags.AppName == "" {
-		var sourceAbsoluteDir string
+		var sourceBinPath string
 		log.Printf("No application name specified, attempting to parse from source-dir name\n")
 
-		switch deployFlags.SourceDir {
+		switch deployFlags.SourceBin {
 		case ".", "./", "":
-			sourceAbsoluteDir, err = os.Getwd()
+			sourceBinPath, err = os.Getwd()
 			if err != nil {
 				return err
 			}
 
 		default:
-			sourceAbsoluteDir = filepath.Dir(deployFlags.SourceBin)
+			sourceBinPath = filepath.Dir(deployFlags.SourceBin)
 		}
 
 		agent, err := startSshClient()
@@ -135,23 +145,38 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("error initializing ssh client %w", err)
 		}
 
-		sourceBaseName := filepath.Base(sourceAbsoluteDir)
+		sourceBaseName := filepath.Base(sourceBinPath)
 		log.Printf("Using %s for app-name", sourceBaseName)
 		deployFlags.AppName = sourceBaseName
-		srcFilesTarName := fmt.Sprintf("%s.tar.gz", deployFlags.AppName)
+		/*
+			srcFilesTarName := fmt.Sprintf("%s.tar.gz", deployFlags.AppName)
 
-		files.CreateTarGzWithExcludes(sourceAbsoluteDir, srcFilesTarName, deployFlags.SourceExcludes)
-		files.CreateTarGzWithExcludes(deployUtilsPath, deployUtilsTar, []string{""})
-
-		err = agent.Upload(srcFilesTarName, deployFlags.InstallDir)
+			files.CreateTarGzWithExcludes(sourceBinPath, srcFilesTarName, deployFlags.SourceExcludes)
+			files.CreateTarGzWithExcludes(deployUtilsPath, deployUtilsTar, []string{""})
+		*/
+		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(deployFlags.InstallDir))
+		if err != nil {
+			return fmt.Errorf("error creating remote path %w", err)
+		}
+		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(remoteUtilsPath))
+		if err != nil {
+			return fmt.Errorf("error creating remote path %w", err)
+		}
+		err = agent.Upload(sourceBinPath, deployFlags.InstallDir)
 		if err != nil {
 			return fmt.Errorf("error uploading source tar %w", err)
 		}
 
-		err = agent.Upload(deployUtilsTar, remoteUtilsPath)
+		err = agent.Upload(deployUtilsPath, remoteUtilsPath)
 		if err != nil {
 			return fmt.Errorf("error uploading remote deplouy utils tar %w", err)
 		}
+
+		output, err := agent.RunCommandAndCaptureOutput(remoteValidateUserBaseCmd, []string{deployFlags.ServiceUser, fmt.Sprintf("%d", deployFlags.ServiceUid)})
+		if err != nil {
+			log.Fatalf("error validateing remoter ServiceUser and ServiceUid pair %s", err.Error())
+		}
+		fmt.Printf("DEBUG: %s\n", string(output))
 	}
 
 	return err
@@ -199,7 +224,21 @@ func createUserOnRemote(serviceUser string, serviceUid int64) error {
 }
 
 func validateLocalUidUnamePair(serviceUser string, serviceUid int64) error {
-	return validateSvcUserInput(serviceUser, serviceUid)
+	err := validate.ValidateRemoteUidUnamePair(deployFlags.ServiceUser, deployFlags.ServiceUid)
+	switch err.(type) {
+	case *validate.KnownRemoteUserAndIdError:
+		log.Println("Username and UID both exist and match.")
+		return nil
+	case *validate.RemoteUsernameExistsError:
+		log.Println("Username or UID exists, but they do not match.")
+		return err
+	case nil:
+		log.Println("Username and UID are a valid pair; neither currently exist.")
+		return nil
+	default:
+		log.Printf("Unexpected error validating user: %s\n", err)
+		return err
+	}
 }
 
 /*
