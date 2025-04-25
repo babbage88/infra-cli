@@ -20,7 +20,7 @@ const (
 	deployUtilsPath           string = "remote_utils/bin"
 	deployUtilsTar            string = "remote_utils.tar.gz"
 	remoteUtilsPath           string = "/tmp/utils"
-	validateUserUtilPath      string = "remote_utils/validate-user"
+	validateUserUtilPath      string = "remote_utils/bin/validate-user"
 	remoteValidateUserBaseCmd string = "/tmp/utils/remote_utils/validate-user"
 	mkdirCmdBase              string = "mkdir"
 	mkdirArgs                 string = "-p"
@@ -34,6 +34,7 @@ func mkdirArgsWithPath(path string) []string {
 }
 
 func startSshClient() (*ssh.RemoteAppDeploymentAgent, error) {
+	fmt.Println("starting ssh client")
 	rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey(
 		deployFlags.RemoteHostName,
 		deployFlags.RemoteSshUser,
@@ -63,7 +64,7 @@ func getCurrentUserName() (string, error) {
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy a Go web application as a systemd service",
-	RunE:  deployServiceOnLocal,
+	RunE:  deployServiceToRemoteHost,
 }
 
 // Struct for storing deployment flags
@@ -107,14 +108,14 @@ func init() {
 	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
 	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
-	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "appname", "Name of the compiled binary that will be output")
-	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/appname", "Directory to install the binary")
+	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "smbplusplus", "Name of the compiled binary that will be output")
+	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/smbplusplus", "Directory to install the binary")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", ".", "Source Binary to install to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
-	deployCmd.Flags().BoolVar(&deployFlags.DeployBinary, "deploy-binary", false, "Deploy a binary which has already been built.")
+	deployCmd.Flags().BoolVar(&deployFlags.DeployBinary, "deploy-binary", true, "Deploy a binary which has already been built.")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", curUser, "Remote SSH user to connect with")
 	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude durign build")
 
@@ -123,6 +124,7 @@ func init() {
 }
 
 func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
+	slog.Info("Starting remote deployment")
 	var err error = nil
 	// 1. Validate input
 	if deployFlags.AppName == "" {
@@ -142,6 +144,7 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 
 		agent, err := startSshClient()
 		if err != nil {
+			slog.Error("error initializing ssh client", "err", err.Error())
 			return fmt.Errorf("error initializing ssh client %w", err)
 		}
 
@@ -154,29 +157,36 @@ func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
 			files.CreateTarGzWithExcludes(sourceBinPath, srcFilesTarName, deployFlags.SourceExcludes)
 			files.CreateTarGzWithExcludes(deployUtilsPath, deployUtilsTar, []string{""})
 		*/
+
 		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(deployFlags.InstallDir))
 		if err != nil {
 			return fmt.Errorf("error creating remote path %w", err)
 		}
+		slog.Info("Creating install dir on remott host", slog.String("install-dir", deployFlags.InstallDir), slog.String("remotte-host", deployFlags.RemoteHostName))
+
 		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(remoteUtilsPath))
 		if err != nil {
 			return fmt.Errorf("error creating remote path %w", err)
 		}
+		slog.Info("Creating utils dir on remote host", slog.String("utils-dir", remoteUtilsPath), slog.String("remotte-host", deployFlags.RemoteHostName))
+
 		err = agent.Upload(sourceBinPath, deployFlags.InstallDir)
 		if err != nil {
 			return fmt.Errorf("error uploading source tar %w", err)
 		}
+		slog.Info("Uploading bin to install path", slog.String("bin-name", deployFlags.SourceBin))
 
 		err = agent.Upload(deployUtilsPath, remoteUtilsPath)
 		if err != nil {
 			return fmt.Errorf("error uploading remote deplouy utils tar %w", err)
 		}
+		slog.Info("uplading remote utils")
 
 		output, err := agent.RunCommandAndCaptureOutput(remoteValidateUserBaseCmd, []string{deployFlags.ServiceUser, fmt.Sprintf("%d", deployFlags.ServiceUid)})
 		if err != nil {
 			log.Fatalf("error validateing remoter ServiceUser and ServiceUid pair %s", err.Error())
 		}
-		fmt.Printf("DEBUG: %s\n", string(output))
+		fmt.Println("validate command", string(output))
 	}
 
 	return err
@@ -240,41 +250,6 @@ func validateLocalUidUnamePair(serviceUser string, serviceUid int64) error {
 		return err
 	}
 }
-
-/*
-func validateRemoteUidUnamePair(serviceUser string, serviceUid int64) error {
-	var unameExists bool = false
-	var uidExists bool = false
-
-	client, err := startSshClient(deployFlags.RemoteHostName, deployFlags.RemoteSshUser, rootViperCfg.GetString("ssh_key"), rootViperCfg.GetString("ssh_passphrase"))
-	if err != nil {
-		log.Printf("Error initializing ssh-client err: %s\n", err.Error())
-		return err
-	}
-
-	checkUnameCmd, err := client.Command("id", "-u", serviceUser)
-	if err != nil {
-		log.Printf("Error creating remote command to check username exists err: %s\n", err.Error())
-		return err
-	}
-
-	if err := checkUnameCmd.Run(); err == nil {
-		log.Printf("Service user already exists: %s\n", serviceUser)
-		unameExists = true // Username exists already, return no error
-	}
-
-	checkUidCmd, err := client.Command("getent", "passwd", fmt.Sprintf("%d", serviceUid))
-	if err != nil {
-		log.Printf("Error creating remote command to check if uid exists err: %s\n", err.Error())
-		return err
-	}
-
-	if err := checkUidCmd.Run(); err == nil {
-		log.Printf("Service user already exists: %s\n", serviceUser)
-		uidExists = true // The specified uid already exists
-	}
-}
-*/
 
 func createUserOnLocal(serviceUser string) error {
 	// Check if the user already exists
