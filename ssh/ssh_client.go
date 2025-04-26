@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/babbage88/goph"
+	"github.com/babbage88/goph/v2"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -218,14 +218,12 @@ func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) e
 		slog.Error("error initializing goph Command", "error", err.Error())
 		return err
 	}
-	err = cmd.Run()
 
+	// Only run ONCE
+	err = cmd.Run()
 	if err != nil {
 		slog.Error("error Running goph Command", "error", err.Error())
-		return err
 	}
-	// Run you command.
-	err = cmd.Run()
 	return err
 }
 
