@@ -33,6 +33,7 @@ var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy a Go web application as a systemd service",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Println("Starting Cobra deploy command", "AppName", deployFlags.AppName)
 		enVars := deployer.WithEnvars(deployFlags.EnvVars)
 		serviceAccount := make(map[int64]string)
 		serviceAccount[deployFlags.ServiceUid] = deployFlags.ServiceUser
@@ -53,6 +54,7 @@ var deployCmd = &cobra.Command{
 			rootViperCfg.GetBool("ssh_use_agent"),
 			rootViperCfg.GetUint("ssh_port"),
 		)
+		defer appDeployer.SshClient.SshClient.Close()
 		if err != nil {
 			return fmt.Errorf("Error initializing ssh client %w", err)
 		}
