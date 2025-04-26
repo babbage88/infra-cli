@@ -24,7 +24,7 @@ func deployServiceOnLocal(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build the binary
-	if err := bob.BuildAndDeployGoBinary(deployFlags.SourceDir, deployFlags.InstallDir, deployFlags.BinaryName, deployFlags.ServiceUser); err != nil {
+	if err := bob.BuildAndDeployGoBinary(deployFlags.SourceDir, deployFlags.InstallDir, deployFlags.DestinationBinary, deployFlags.ServiceUser); err != nil {
 		return err
 	}
 
@@ -94,7 +94,7 @@ Environment=%s
 
 [Install]
 WantedBy=multi-user.target
-`, flags.AppName, flags.InstallDir, flags.BinaryName, flags.InstallDir, flags.ServiceUser, flags.ServiceUser, formatEnvVars(flags.EnvVars))
+`, flags.AppName, flags.InstallDir, flags.DestinationBinary, flags.InstallDir, flags.ServiceUser, flags.ServiceUser, formatEnvVars(flags.EnvVars))
 
 	_, err = unitFile.WriteString(systemdContent)
 	if err != nil {

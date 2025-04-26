@@ -4,11 +4,11 @@ go 1.24.2
 
 require (
 	github.com/BurntSushi/toml v1.4.0
-	github.com/babbage88/goph v1.6.3
+	github.com/babbage88/goph/v2 v2.0.1
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/go-git/go-git/v5 v5.14.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
-	github.com/pkg/sftp v1.13.6
+	github.com/pkg/sftp v1.13.9
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
 	gopkg.in/yaml.v3 v3.0.1

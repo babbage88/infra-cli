@@ -30,8 +30,9 @@ func getCurrentUserName() (string, error) {
 }
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Deploy a Go web application as a systemd service",
+	Use:          "deploy",
+	Short:        "Deploy a Go web application as a systemd service",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Starting Cobra deploy command", "AppName", deployFlags.AppName)
 		enVars := deployer.WithEnvars(deployFlags.EnvVars)
@@ -66,22 +67,22 @@ var deployCmd = &cobra.Command{
 
 // Struct for storing deployment flags
 type DeployFlags struct {
-	RemoteHostName   string            `mapstructure:"remote-host"`
-	RemoteSshUser    string            `mapstructure:"remote-ssh-user"`
-	AppName          string            `mapstructure:"app-name"`
-	BinaryDir        string            `mapstructure:"binary-dir"`
-	EnvVars          map[string]string `mapstructure:"env-vars"`
-	ServiceUser      string            `mapstructure:"service-user"`
-	ServiceUid       int64             `mapstructure:"service-uid"`
-	BinaryName       string            `mapstructure:"binary-name"`
-	InstallDir       string            `mapstructure:"install-dir"`
-	SystemdDir       string            `mapstructure:"systemd-dir"`
-	SourceDir        string            `mapstructure:"source-dir"`
-	SourceBin        string            `mapstructure:"source-bin"`
-	SourceExcludes   []string          `mapstructure:"exclude-files"`
-	RemoteDeployment bool              `mapstructure:"remote-deployment"`
-	DeployBinary     bool              `mapstructure:"deploy-binary"`
-	VerboseLogging   bool              `mapstructure:"verbose"`
+	RemoteHostName    string            `mapstructure:"remote-host"`
+	RemoteSshUser     string            `mapstructure:"remote-ssh-user"`
+	AppName           string            `mapstructure:"app-name"`
+	BinaryDir         string            `mapstructure:"binary-dir"`
+	EnvVars           map[string]string `mapstructure:"env-vars"`
+	ServiceUser       string            `mapstructure:"service-user"`
+	ServiceUid        int64             `mapstructure:"service-uid"`
+	DestinationBinary string            `mapstructure:"dst-bin"`
+	InstallDir        string            `mapstructure:"install-dir"`
+	SystemdDir        string            `mapstructure:"systemd-dir"`
+	SourceDir         string            `mapstructure:"source-dir"`
+	SourceBin         string            `mapstructure:"source-bin"`
+	SourceExcludes    []string          `mapstructure:"exclude-files"`
+	RemoteDeployment  bool              `mapstructure:"remote-deployment"`
+	DeployBinary      bool              `mapstructure:"deploy-binary"`
+	VerboseLogging    bool              `mapstructure:"verbose"`
 }
 
 var deployFlags DeployFlags
@@ -97,11 +98,11 @@ func init() {
 	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
 	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
-	deployCmd.Flags().StringVar(&deployFlags.BinaryName, "binary-name", "smbplusplus", "Name of the compiled binary that will be output")
+	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "smbplusplus", "Name of the compiled binary that will be output")
 	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/smbplusplus", "Directory to install the binary")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
-	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", ".", "Source Binary to install to build the application")
+	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "smbplusplus", "Source Binary to install to build tazxzhe application")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
 	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging.")
