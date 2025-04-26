@@ -65,9 +65,15 @@ func (r *RemoteSystemdDeployer) TarMoveCopy(sourceDir, destinationDir string, ex
 
 	// Step 6: Fix ownership if sudo was used
 	if sudo {
-		chownCmd := []string{"-R", fmt.Sprintf("%s:%s", r.ServiceUser, r.ServiceUser), destinationDir}
-		slog.Info("Fixing ownership", slog.String("destinationDir", destinationDir), slog.String("serviceUser", r.ServiceUser))
-		err = r.SshClient.RunCommand(sudoCmd, chownCmd)
+		chownCmdArgs := make([]string, 3)
+		for uid, username := range r.ServiceAccount {
+			args := []string{"-R", fmt.Sprintf("%d:%s", uid, username), destinationDir}
+			chownCmdArgs = append(chownCmdArgs, args...)
+			slog.Info("Fixing ownership", slog.String("destinationDir", destinationDir), slog.String("serviceUser", username))
+			break
+		}
+
+		err = r.SshClient.RunCommand(sudoCmd, chownCmdArgs)
 		if err != nil {
 			return fmt.Errorf("failed to chown extracted files: %w", err)
 		}
