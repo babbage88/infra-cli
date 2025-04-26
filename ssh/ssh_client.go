@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 
 	"github.com/babbage88/goph"
@@ -123,6 +124,21 @@ func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstU
 	return &remoteDeployAgent, nil
 }
 
+func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, envVars map[string]string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
+	sshClient, err := initializeSshClient(hostname, sshUser, port, sshKey, sshPassphrase, agent)
+	if err != nil {
+		log.Printf("Error initializing ssh client %s\n", err.Error())
+		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
+	}
+
+	remoteDeployAgent := RemoteAppDeploymentAgent{
+		SshClient: sshClient,
+		EnvVars:   envVars,
+	}
+
+	return &remoteDeployAgent, nil
+}
+
 func (r *RemoteAppDeploymentAgent) CopyUtilsToRemoteHost() error {
 	err := r.SshClient.Upload(r.SourceUtilsDir, r.DestinationUtilsDir)
 	if err != nil {
@@ -194,14 +210,20 @@ func (r *RemoteAppDeploymentAgent) WriteBytesSftp(destinationPath string, data [
 
 func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) error {
 	cmd, err := r.SshClient.Command(remoteCmd, args...)
-	if err != nil {
-		return err
-	}
-
 	// You can set env vars, but the server must be configured to `AcceptEnv line`.
 	cmd.Env = r.GetEnvarSlice()
 
 	log.Printf("Executing remote command cmd: %s args: %v\n", remoteCmd, args)
+	if err != nil {
+		slog.Error("error initializing goph Command", "error", err.Error())
+		return err
+	}
+	err = cmd.Run()
+
+	if err != nil {
+		slog.Error("error Running goph Command", "error", err.Error())
+		return err
+	}
 	// Run you command.
 	err = cmd.Run()
 	return err

@@ -2,16 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"log/slog"
-	"os"
-	"os/exec"
 	"os/user"
-	"path/filepath"
 
-	"github.com/babbage88/goph"
-	"github.com/babbage88/infra-cli/internal/deployment/validate"
-	"github.com/babbage88/infra-cli/ssh"
+	"github.com/babbage88/infra-cli/deployer"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -26,32 +20,6 @@ const (
 	mkdirArgs                 string = "-p"
 )
 
-func mkdirArgsWithPath(path string) []string {
-	retVal := make([]string, 0, 2)
-	retVal = append(retVal, mkdirArgs)
-	retVal = append(retVal, path)
-	return retVal
-}
-
-func startSshClient() (*ssh.RemoteAppDeploymentAgent, error) {
-	fmt.Println("starting ssh client")
-	rclient, err := ssh.NewRemoteAppDeploymentAgentWithSshKey(
-		deployFlags.RemoteHostName,
-		deployFlags.RemoteSshUser,
-		deployUtilsPath,
-		remoteUtilsPath,
-		rootViperCfg.GetString("ssh_key"),
-		rootViperCfg.GetString("ssh_passphrase"),
-		deployFlags.EnvVars,
-		rootViperCfg.GetBool("ssh_use_agent"),
-		rootViperCfg.GetUint("ssh_port"))
-	if err != nil {
-		slog.Error("Error initializing ssh client", slog.String("error", err.Error()))
-		return nil, err
-	}
-	return rclient, err
-}
-
 func getCurrentUserName() (string, error) {
 	currentUser, err := user.Current()
 	if err != nil {
@@ -64,7 +32,34 @@ func getCurrentUserName() (string, error) {
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy a Go web application as a systemd service",
-	RunE:  deployServiceToRemoteHost,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		enVars := deployer.WithEnvars(deployFlags.EnvVars)
+		serviceAccount := make(map[int64]string)
+		serviceAccount[deployFlags.ServiceUid] = deployFlags.ServiceUser
+		svcUser := deployer.WithServiceAccount(serviceAccount)
+		appDeployer := deployer.NewRemoteSystemdDeployer(deployFlags.RemoteHostName,
+			deployFlags.RemoteSshUser,
+			deployFlags.AppName,
+			deployFlags.SourceDir,
+			enVars,
+			svcUser,
+			deployer.WithInstallDir(deployFlags.InstallDir),
+			deployer.WithSystemdDir(deployFlags.SystemdDir),
+		)
+		err := appDeployer.StartSshDeploymentAgent(
+			rootViperCfg.GetString("ssh_key"),
+			rootViperCfg.GetString("ssh_passphrase"),
+			deployFlags.EnvVars,
+			rootViperCfg.GetBool("ssh_use_agent"),
+			rootViperCfg.GetUint("ssh_port"),
+		)
+		if err != nil {
+			return fmt.Errorf("Error initializing ssh client %w", err)
+		}
+		slog.Info("Starting application installer", slog.String("RemoteHost", deployFlags.RemoteHostName), slog.String("AppName", deployFlags.AppName))
+		err = appDeployer.InstallApplication()
+		return err
+	},
 }
 
 // Struct for storing deployment flags
@@ -84,18 +79,10 @@ type DeployFlags struct {
 	SourceExcludes   []string          `mapstructure:"exclude-files"`
 	RemoteDeployment bool              `mapstructure:"remote-deployment"`
 	DeployBinary     bool              `mapstructure:"deploy-binary"`
+	VerboseLogging   bool              `mapstructure:"verbose"`
 }
 
 var deployFlags DeployFlags
-
-func (d *DeployFlags) copyUserValidateToRemote(client *goph.Client) error {
-	err := client.Upload(validateUserUtilPath, "/tmp/validate-user")
-	if err != nil {
-		return err
-		// return fmt.Errorf("error deploying remote_utils src: %s dst: %s err: %w", validateUserUtilPath, "/tmp/validate-user", error)
-	}
-	return nil
-}
 
 // init function to define the command flags and bind them with viper
 func init() {
@@ -115,216 +102,12 @@ func init() {
 	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", ".", "Source Binary to install to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
-	deployCmd.Flags().BoolVar(&deployFlags.DeployBinary, "deploy-binary", true, "Deploy a binary which has already been built.")
+	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging.")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", curUser, "Remote SSH user to connect with")
 	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude durign build")
 
 	// Bind the flags with viper
 	viper.BindPFlags(deployCmd.Flags())
-}
-
-func deployServiceToRemoteHost(cmd *cobra.Command, args []string) error {
-	slog.Info("Starting remote deployment")
-	var err error = nil
-	// 1. Validate input
-	if deployFlags.AppName == "" {
-		var sourceBinPath string
-		log.Printf("No application name specified, attempting to parse from source-dir name\n")
-
-		switch deployFlags.SourceBin {
-		case ".", "./", "":
-			sourceBinPath, err = os.Getwd()
-			if err != nil {
-				return err
-			}
-
-		default:
-			sourceBinPath = filepath.Dir(deployFlags.SourceBin)
-		}
-
-		agent, err := startSshClient()
-		if err != nil {
-			slog.Error("error initializing ssh client", "err", err.Error())
-			return fmt.Errorf("error initializing ssh client %w", err)
-		}
-
-		sourceBaseName := filepath.Base(sourceBinPath)
-		log.Printf("Using %s for app-name", sourceBaseName)
-		deployFlags.AppName = sourceBaseName
-		/*
-			srcFilesTarName := fmt.Sprintf("%s.tar.gz", deployFlags.AppName)
-
-			files.CreateTarGzWithExcludes(sourceBinPath, srcFilesTarName, deployFlags.SourceExcludes)
-			files.CreateTarGzWithExcludes(deployUtilsPath, deployUtilsTar, []string{""})
-		*/
-
-		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(deployFlags.InstallDir))
-		if err != nil {
-			return fmt.Errorf("error creating remote path %w", err)
-		}
-		slog.Info("Creating install dir on remott host", slog.String("install-dir", deployFlags.InstallDir), slog.String("remotte-host", deployFlags.RemoteHostName))
-
-		err = agent.RunCommand(mkdirCmdBase, mkdirArgsWithPath(remoteUtilsPath))
-		if err != nil {
-			return fmt.Errorf("error creating remote path %w", err)
-		}
-		slog.Info("Creating utils dir on remote host", slog.String("utils-dir", remoteUtilsPath), slog.String("remotte-host", deployFlags.RemoteHostName))
-
-		err = agent.Upload(sourceBinPath, deployFlags.InstallDir)
-		if err != nil {
-			return fmt.Errorf("error uploading source tar %w", err)
-		}
-		slog.Info("Uploading bin to install path", slog.String("bin-name", deployFlags.SourceBin))
-
-		err = agent.Upload(deployUtilsPath, remoteUtilsPath)
-		if err != nil {
-			return fmt.Errorf("error uploading remote deplouy utils tar %w", err)
-		}
-		slog.Info("uplading remote utils")
-
-		output, err := agent.RunCommandAndCaptureOutput(remoteValidateUserBaseCmd, []string{deployFlags.ServiceUser, fmt.Sprintf("%d", deployFlags.ServiceUid)})
-		if err != nil {
-			log.Fatalf("error validateing remoter ServiceUser and ServiceUid pair %s", err.Error())
-		}
-		fmt.Println("validate command", string(output))
-	}
-
-	return err
-}
-
-func deployServiceOnLocal(cmd *cobra.Command, args []string) error {
-	// 1. Validate input
-	if deployFlags.AppName == "" {
-		return fmt.Errorf("application name is required")
-	}
-
-	// 2. Create user for the service if not exists
-	if err := createUserOnLocal(deployFlags.ServiceUser); err != nil {
-		return err
-	}
-
-	// 3. Build the binary
-	if err := buildBinary(deployFlags.SourceDir, deployFlags.InstallDir, deployFlags.BinaryName); err != nil {
-		return err
-	}
-
-	// 4. Set up environment variables in systemd unit file
-	if err := createSystemdUnitOnLocal(deployFlags); err != nil {
-		return err
-	}
-
-	// 5. Install, enable, and start the service
-	return manageSystemdServiceOnLocal(deployFlags)
-}
-
-func createUserOnRemote(serviceUser string, serviceUid int64) error {
-	client, err := startSshClient()
-	if err != nil {
-		log.Printf("Error initializing ssh-client err: %s\n", err.Error())
-		return err
-	}
-
-	createUserCmd, err := client.SshClient.Command("useradd", "-m", serviceUser)
-	if err := createUserCmd.Run(); err != nil {
-		log.Printf("Failed to create user: %s err: %s\n", serviceUser, err.Error())
-		return fmt.Errorf("failed to create user: %v", err)
-	}
-
-	return nil
-}
-
-func validateLocalUidUnamePair(serviceUser string, serviceUid int64) error {
-	err := validate.ValidateRemoteUidUnamePair(deployFlags.ServiceUser, deployFlags.ServiceUid)
-	switch err.(type) {
-	case *validate.KnownRemoteUserAndIdError:
-		log.Println("Username and UID both exist and match.")
-		return nil
-	case *validate.RemoteUsernameExistsError:
-		log.Println("Username or UID exists, but they do not match.")
-		return err
-	case nil:
-		log.Println("Username and UID are a valid pair; neither currently exist.")
-		return nil
-	default:
-		log.Printf("Unexpected error validating user: %s\n", err)
-		return err
-	}
-}
-
-func createUserOnLocal(serviceUser string) error {
-	// Check if the user already exists
-	cmd := exec.Command("id", "-u", serviceUser)
-	if err := cmd.Run(); err == nil {
-		return nil // User exists
-	}
-
-	// Create a new user
-	cmd = exec.Command("useradd", "-m", serviceUser)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create user: %v", err)
-	}
-	return nil
-}
-
-func buildBinary(sourceDir, installDir, binaryName string) error {
-	// Ensure the install directory exists
-	if err := os.MkdirAll(installDir, 0755); err != nil {
-		return fmt.Errorf("failed to create install directory: %v", err)
-	}
-
-	// Build the binary from source
-	cmd := exec.Command("go", "build", "-o", filepath.Join(installDir, binaryName), sourceDir)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to build binary: %v", err)
-	}
-
-	// Ensure the binary is owned by the app user
-	cmd = exec.Command("chown", deployFlags.ServiceUser, filepath.Join(installDir, binaryName))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set ownership: %v", err)
-	}
-
-	return nil
-}
-
-func createSystemdUnitOnLocal(flags DeployFlags) error {
-	// Create the systemd unit file
-	unitFilePath := filepath.Join(flags.SystemdDir, fmt.Sprintf("%s.service", flags.AppName))
-	unitFile, err := os.Create(unitFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create systemd unit file: %v", err)
-	}
-	defer unitFile.Close()
-
-	// Write systemd unit file content
-	systemdContent := fmt.Sprintf(`[Unit]
-Description=%s Service
-After=network.target
-
-[Service]
-ExecStart=%s/%s
-WorkingDirectory=%s
-User=%s
-Group=%s
-Restart=on-failure
-Environment=%s
-
-[Install]
-WantedBy=multi-user.target
-`, flags.AppName, flags.InstallDir, flags.BinaryName, flags.InstallDir, flags.ServiceUser, flags.ServiceUser, formatEnvVars(flags.EnvVars))
-
-	_, err = unitFile.WriteString(systemdContent)
-	if err != nil {
-		return fmt.Errorf("failed to write systemd unit file: %v", err)
-	}
-
-	// Set the correct permissions for the systemd unit
-	cmd := exec.Command("chmod", "644", unitFilePath)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set systemd unit file permissions: %v", err)
-	}
-
-	return nil
 }
 
 func formatEnvVars(envVars map[string]string) string {
@@ -335,26 +118,4 @@ func formatEnvVars(envVars map[string]string) string {
 		formattedVars = append(formattedVars, envLine)
 	}
 	return fmt.Sprintf("%s", formattedVars)
-}
-
-func manageSystemdServiceOnLocal(flags DeployFlags) error {
-	// Reload systemd to recognize the new service
-	cmd := exec.Command("systemctl", "daemon-reload")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to reload systemd daemon: %v", err)
-	}
-
-	// Enable the service to start on boot
-	cmd = exec.Command("systemctl", "enable", fmt.Sprintf("%s.service", flags.AppName))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to enable service: %v", err)
-	}
-
-	// Start the service
-	cmd = exec.Command("systemctl", "start", fmt.Sprintf("%s.service", flags.AppName))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to start service: %v", err)
-	}
-
-	return nil
 }
