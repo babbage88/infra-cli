@@ -11,6 +11,7 @@ SHELL := /bin/bash
 VERBOSE ?= 1
 export REMOTE_UTILS_DIR:=./remote_utils/bin
 export VALIDATE_USER_UTIL_SRC:=./internal/remote/deployment/validate
+export USERS_UTIL_SRC:=./internal/remote/deployment/createuser
 ifeq ($(VERBOSE),1)
 	V = -v
 endif
@@ -29,7 +30,8 @@ utils-dir:
 
 build-validate:
 	@echo "**** building validate-user utility outdir: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
-	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC)
+	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC) && chmod +x $(REMOTE_UTILS_DIR)/validate-user 
+	go build -o $(REMOTE_UTILS_DIR)/user-utils $(USERS_UTIL_SRC) && chmod +x $(REMOTE_UTILS_DIR)/user-utils
 
 utils: utils-dir build-validate
 	@echo "**** Building remote utils ****"

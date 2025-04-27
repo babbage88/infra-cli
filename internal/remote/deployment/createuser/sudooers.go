@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -21,9 +22,51 @@ type SudoersEntry struct {
 	IsGroup     bool
 }
 
-func trySudoLsCommand(username string) bool {
-	cmd := exec.Command("sudo", "-n", "ls", "/etc")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("USER=%s", username))
+func checkUserHasSudo(u *user.User) bool {
+	groupIDs, err := u.GroupIds()
+	if err != nil {
+		log.Fatalf("Failed to get user's group IDs: %v", err)
+	}
+
+	var groups []string
+	for _, gid := range groupIDs {
+		group, err := user.LookupGroupId(gid)
+		if err == nil {
+			groups = append(groups, group.Name)
+		}
+	}
+
+	// Step 1: Check if user is in known sudo groups
+	for _, group := range groups {
+		if group == sudoGroupname || group == wheelGroupname || group == adminGroupname {
+			fmt.Println("User likely has sudo privileges (belongs to sudo/wheel/admin group).")
+			return true
+		}
+	}
+
+	// Step 2: Parse /etc/sudoers and /etc/sudoers.d/*
+	hasSudoersSudo, err := parseSudoersFiles(u.Username, groups)
+	if err != nil {
+		fmt.Println("Warning: Error parsing sudoers files:", err)
+	}
+	if hasSudoersSudo {
+		fmt.Println("User has sudo privileges according to sudoers file entries.")
+		return true
+	}
+
+	// Step 3: Final fallback - Try running a safe sudo command
+	fmt.Println("Performing a sudo command test to verify...")
+	if trySudoLsCommand() {
+		fmt.Println("User successfully executed sudo command (likely has sudo privileges).")
+		return true
+	}
+
+	fmt.Println("User does NOT appear to have sudo privileges.")
+	return false
+}
+
+func trySudoLsCommand() bool {
+	cmd := exec.Command(sudoCmd, trySudoArgs...)
 	err := cmd.Run()
 
 	if err == nil {

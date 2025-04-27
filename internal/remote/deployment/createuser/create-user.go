@@ -11,23 +11,30 @@ import (
 )
 
 const (
-	sudoCmd           string = "sudo"
-	useraddCmd        string = "useradd"
-	groupaddCmd       string = "groupadd"
-	usermodCmd        string = "usermod"
-	sudoersDirectory  string = "/etc/sudoers.d"
-	sudoersFilePrefix string = "custom-"
-	useraddUidFlag    string = "-u"
-	useraddGidFlag    string = "-g"
-	groupaddGidFlag   string = "-g"
-	rootUid           int64  = 0
-	rootUidStr        string = "0"
-	rootGid           int64  = 0
-	rootGidStr        string = "0"
-	rootUsername      string = "root"
-	sudoGroupname     string = "wheel"
-	wheelGroupname    string = "wheel"
-	adminGroupname    string = "admin"
+	sudoCmd                   string = "sudo"
+	useraddCmd                string = "useradd"
+	groupaddCmd               string = "groupadd"
+	usermodCmd                string = "usermod"
+	sudoersDirectory          string = "/etc/sudoers.d"
+	lsCmd                     string = "ls"
+	rootDir                   string = "/"
+	sudoersFilePrefix         string = "custom-"
+	trySudoNonInteractiveFlag string = "-n"
+	useraddUidFlag            string = "-u"
+	useraddGidFlag            string = "-g"
+	groupaddGidFlag           string = "-g"
+	rootUid                   int64  = 0
+	rootUidStr                string = "0"
+	rootGid                   int64  = 0
+	rootGidStr                string = "0"
+	rootUsername              string = "root"
+	sudoGroupname             string = "wheel"
+	wheelGroupname            string = "wheel"
+	adminGroupname            string = "admin"
+)
+
+var (
+	trySudoArgs []string = []string{trySudoNonInteractiveFlag, lsCmd, rootDir}
 )
 
 func buildCommandArgs(useSudo bool, newUid int64, newUsername string, newGid int64) (string, []string) {
@@ -143,61 +150,26 @@ func getCurrentUserInfo() (*user.User, error) {
 	return currentUser, nil
 }
 
-func checkUserHasSudo(u *user.User) bool {
-	groupIDs, err := u.GroupIds()
-	if err != nil {
-		log.Fatalf("Failed to get user's group IDs: %v", err)
-	}
-
-	var groups []string
-	for _, gid := range groupIDs {
-		group, err := user.LookupGroupId(gid)
-		if err == nil {
-			groups = append(groups, group.Name)
-		}
-	}
-
-	hasGroupSudo := false
-	for _, group := range groups {
-		if group == sudoGroupname || group == wheelGroupname || group == adminGroupname {
-			hasGroupSudo = true
-			break
-		}
-	}
-
-	if hasGroupSudo {
-		fmt.Println("User likely has sudo privileges (belongs to sudo/wheel/admin group).")
-		return true
-	}
-
-	// If not obvious, parse sudoers files
-	hasSudoersSudo, err := parseSudoersFiles(u.Username, groups)
-	if err != nil {
-		fmt.Println("Warning: Error parsing sudoers files:", err)
-	}
-	if hasSudoersSudo {
-		fmt.Println("User has sudo privileges according to sudoers file entries.")
-		return true
-	}
-
-	fmt.Println("User does NOT appear to have sudo privileges.")
-	return false
-}
-
 // Command-line interface for adding a user with a specific UID
 func main() {
 	var username string
 	var uid int64
 	var gid int64
 	var checkSudo bool
+	var trySudo bool
 
 	flag.StringVar(&username, "username", "", "Username to create")
 	flag.Int64Var(&uid, "uid", 8888, "UID for the new user")
 	flag.Int64Var(&gid, "gid", uid, "GID for the new user")
 	flag.BoolVar(&checkSudo, "check-sudo", false, "Check if the current user has sudo privileges")
+	flag.BoolVar(&trySudo, "try-sudo", false, "Try running a command with sudo that host no side effects. eg: sudo ls /")
 
 	// Parse the flags
 	flag.Parse()
+
+	if trySudo {
+		trySudoLsCommand()
+	}
 
 	if checkSudo {
 		curUser, err := getCurrentUserInfo()
