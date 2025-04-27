@@ -2,12 +2,17 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // Represents a parsed sudoers entry
@@ -16,11 +21,57 @@ type SudoersEntry struct {
 	IsGroup     bool
 }
 
+func trySudoLsCommand(username string) bool {
+	cmd := exec.Command("sudo", "-n", "ls", "/etc")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("USER=%s", username))
+	err := cmd.Run()
+
+	if err == nil {
+		// Success without password
+		return true
+	}
+
+	// If the error is due to a password prompt required
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		fmt.Println("Sudo requires a password. Prompting user...")
+
+		// Prompt for password
+		fmt.Print("Password: ")
+		passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			log.Printf("Failed to read password input: %v", err)
+			return false
+		}
+		password := string(passwordBytes)
+
+		return trySudoWithPassword(password)
+	}
+
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 127 {
+		fmt.Println("Warning: sudo command not found.")
+		return false
+	}
+
+	// Some other error
+	return false
+}
+
+func trySudoWithPassword(password string) bool {
+	cmd := exec.Command("sudo", "-S", "ls", "/etc")
+	cmd.Stdin = bytes.NewBufferString(password + "\n")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	err := cmd.Run()
+	return err == nil
+}
+
 // Load and parse all sudoers entries
 func parseSudoersFiles(username string, groups []string) (bool, error) {
 	filesToParse := []string{"/etc/sudoers"}
 
-	// Also parse /etc/sudoers.d/* files
 	sudoersDEntries, err := filepath.Glob("/etc/sudoers.d/*")
 	if err != nil {
 		return false, fmt.Errorf("failed to read sudoers.d directory: %w", err)
@@ -52,8 +103,6 @@ func parseSudoersFile(filePath string, username string, groups []string) (bool, 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := cleanSudoersLine(scanner.Text())
-
-		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -64,11 +113,9 @@ func parseSudoersFile(filePath string, username string, groups []string) (bool, 
 		}
 
 		for _, entry := range entries {
-			// Check if direct user match
 			if !entry.IsGroup && entry.UserOrGroup == username {
 				return true, nil
 			}
-			// Check if group match
 			if entry.IsGroup && contains(groups, entry.UserOrGroup) {
 				return true, nil
 			}
