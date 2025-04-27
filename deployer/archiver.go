@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func (r *RemoteSystemdDeployer) TarMoveCopy(sourceDir, destinationDir string, excludes []string, sudo bool) error {
+func (r *RemoteSystemdDeployer) TarCopyMove(sourceDir, destinationDir string, excludes []string, sudo bool) error {
 	// Generate a timestamped tmp dir
 	timestamp := time.Now().Format("20060102_150405")
 	tmpDir := path.Join("/tmp", timestamp)
