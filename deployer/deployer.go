@@ -17,10 +17,16 @@ const (
 	deployUtilsTar            string = "remote_utils.tar.gz"
 	remoteUtilsPath           string = "/tmp/utils"
 	validateUserUtilPath      string = "remote_utils/bin/validate-user"
-	remoteValidateUserBaseCmd string = "/tmp/utils/remote_utils/validate-user"
+	remoteValidateUserBaseCmd string = "validate-user"
 	mkdirCmdBase              string = "mkdir"
-	mkdirArgs                 string = "-p"
-	sudoCmd                   string = "sudo"
+	chmodCmdBase              string = "chmod"
+	chownCmdBase              string = "chown"
+	chmodFileExecutableArg    string = "+x"
+	validateUsernameCmdFlag   string = "-username"
+	validateUidCmdFlag        string = "-uid"
+
+	mkdirArgs string = "-p"
+	sudoCmd   string = "sudo"
 )
 
 type AppDeployer interface {
@@ -130,6 +136,7 @@ func (r *RemoteSystemdBinDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase
 
 func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	slog.Info("Starting remote deployment")
+	fmt.Println("SourceBin Path", r.SourceBin)
 
 	var err error
 	var sourceBinPath string
@@ -138,8 +145,10 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	if r.SourceBin == "" {
 		return fmt.Errorf("source-bin must be provided")
 	}
-
+	fmt.Println("SourceBin Path", r.SourceBin)
 	sourceBinPath, err = filepath.Abs(r.SourceBin)
+	fmt.Println("sourceBinPAth Path", sourceBinPath)
+
 	if err != nil {
 		slog.Error("Error retrieving filepath.Abs from SourceBin", "error", err.Error())
 		return err
@@ -155,8 +164,7 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	}
 
 	if r.AppName == "" {
-		sourceBaseName := filepath.Base(sourceBinPath)
-		r.AppName = sourceBaseName
+		return fmt.Errorf("No AppName specified has been specified.")
 	}
 	slog.Info("Using for app-name", slog.String("AppName", r.AppName))
 
@@ -165,7 +173,6 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	timestamp := now.Format("020106_150405") // DDMMYY_HHmmss
 	remoteTmpBase := fmt.Sprintf("/tmp/%s", timestamp)
 	remoteUtilsPath := filepath.Join(remoteTmpBase, "utils")
-	remoteValidateUserCmd := filepath.Join(remoteUtilsPath, "remote_utils", "validate-user")
 
 	slog.Info("Remote temp path for utils", slog.String("remote-utils-path", remoteUtilsPath))
 
@@ -196,7 +203,18 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 
 	// Validate service user
 	for uid, username := range r.ServiceAccount {
-		output, err := r.SshClient.RunCommandAndCaptureOutput(remoteValidateUserCmd, []string{username, fmt.Sprintf("%d", uid)})
+		err := r.chmodFileExecutable(filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd))
+		if err != nil {
+			slog.Error("error encounter making validate-user executable", "error", err.Error())
+			return fmt.Errorf("error making validate-user util executable %w", err)
+		}
+		remoteValidateUserCmdArgs := []string{filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd),
+			validateUidCmdFlag,
+			fmt.Sprintf("%d", uid),
+			validateUsernameCmdFlag,
+			username,
+		}
+		output, err := r.SshClient.RunCommandAndCaptureOutput(sudoCmd, remoteValidateUserCmdArgs)
 		if err != nil {
 			return fmt.Errorf("error validating remote service user/uid: %w", err)
 		}
@@ -264,9 +282,14 @@ func (r *RemoteSystemdBinDeployer) UploadAndMove(sourcePath, destinationPath str
 	if err != nil {
 		return fmt.Errorf("failed to stat source path: %w", err)
 	}
+
+	// If source is a directory, use MoveAndCopyDirectory
 	if stat.IsDir() {
-		return fmt.Errorf("UploadAndMove expects a file, got a directory: %s", sourcePath)
+		slog.Info("Detected source as directory", slog.String("sourceDir", sourcePath))
+		return r.MoveAndCopyDirectory(sourcePath, destinationPath)
 	}
+
+	// If source is a file, continue with existing upload logic
 	// Generate timestamped temp directory: /tmp/YYYYMMDD_HHmmss
 	timestamp := time.Now().Format("20060102_150405")
 	tmpDir := path.Join("/tmp", timestamp)
@@ -364,5 +387,14 @@ func (r *RemoteSystemdBinDeployer) MoveAndCopyDirectory(sourceDir, destinationDi
 		return fmt.Errorf("failed to clean up temporary directory: %w", err)
 	}
 
+	return nil
+}
+
+func (r *RemoteSystemdBinDeployer) chmodFileExecutable(path string) error {
+	chmodCmdArgs := []string{chmodCmdBase, chmodFileExecutableArg, path}
+	err := r.SshClient.RunCommand(sudoCmd, chmodCmdArgs)
+	if err != nil {
+		return fmt.Errorf("failed to chmod destination file: %w", err)
+	}
 	return nil
 }

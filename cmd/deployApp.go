@@ -47,6 +47,9 @@ var deployCmd = &cobra.Command{
 			svcUser,
 			deployer.WithInstallDir(deployFlags.InstallDir),
 			deployer.WithSystemdDir(deployFlags.SystemdDir),
+			deployer.WithDestinationBin(deployFlags.DestinationBinary),
+			deployer.WithSourceBin(deployFlags.SourceBin),
+			deployer.WithSourceDir(deployFlags.SourceDir),
 		)
 		err := appDeployer.StartSshDeploymentAgent(
 			rootViperCfg.GetString("ssh_key"),
