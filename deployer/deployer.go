@@ -28,9 +28,9 @@ type AppDeployer interface {
 	ConfigureService(hostName string, serviceAccount map[int64]string, envVars map[string]string)
 }
 
-type RemoteSystemdDeployerOptions func(r *RemoteSystemdDeployer)
+type RemoteSystemdDeployerOptions func(r *RemoteSystemdBinDeployer)
 
-type RemoteSystemdDeployer struct {
+type RemoteSystemdBinDeployer struct {
 	SshClient      *ssh.RemoteAppDeploymentAgent `json:"sshClient"`
 	Archiver       archiver.Archiver             `json:"archiver"`
 	RemoteHostName string                        `json:"remoteHost"`
@@ -45,8 +45,8 @@ type RemoteSystemdDeployer struct {
 	DestinationBin string                        `json:"destinationBin"`
 }
 
-func NewRemoteSystemdDeployer(hostname, sshUser, appName, sourceDir string, opts ...RemoteSystemdDeployerOptions) *RemoteSystemdDeployer {
-	remoteDeployer := &RemoteSystemdDeployer{
+func NewRemoteSystemdDeployer(hostname, sshUser, appName, sourceDir string, opts ...RemoteSystemdDeployerOptions) *RemoteSystemdBinDeployer {
+	remoteDeployer := &RemoteSystemdBinDeployer{
 		RemoteHostName: hostname,
 		RemoteSshUser:  sshUser,
 		AppName:        appName,
@@ -60,56 +60,56 @@ func NewRemoteSystemdDeployer(hostname, sshUser, appName, sourceDir string, opts
 }
 
 func WithEnvars(envVars map[string]string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.EnvVars = envVars
 	}
 
 }
 
 func WithServiceAccount(s map[int64]string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.ServiceAccount = s
 	}
 
 }
 
 func WithRemoteSshUser(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.RemoteSshUser = s
 	}
 }
 
 func WithSourceDir(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.SourceDir = s
 	}
 }
 
 func WithDestinationBin(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.DestinationBin = s
 	}
 }
 
 func WithSystemdDir(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.SystemdDir = s
 	}
 }
 
 func WithInstallDir(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.InstallDir = s
 	}
 }
 
 func WithSourceBin(s string) RemoteSystemdDeployerOptions {
-	return func(r *RemoteSystemdDeployer) {
+	return func(r *RemoteSystemdBinDeployer) {
 		r.SourceBin = s
 	}
 }
 
-func (r *RemoteSystemdDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase string, EnvVars map[string]string, useSshAgent bool, sshPort uint) error {
+func (r *RemoteSystemdBinDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase string, EnvVars map[string]string, useSshAgent bool, sshPort uint) error {
 	client, err := ssh.InitializeRemoteSshAgent(
 		r.RemoteHostName,
 		r.RemoteSshUser,
@@ -128,7 +128,7 @@ func (r *RemoteSystemdDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase st
 	return nil
 }
 
-func (r *RemoteSystemdDeployer) InstallApplication() error {
+func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	slog.Info("Starting remote deployment")
 
 	var err error
@@ -209,7 +209,7 @@ func (r *RemoteSystemdDeployer) InstallApplication() error {
 	return nil
 }
 
-func (r *RemoteSystemdDeployer) CreateUserOnRemote() error {
+func (r *RemoteSystemdBinDeployer) CreateUserOnRemote() error {
 	if r.ServiceAccount == nil {
 		return fmt.Errorf("No remote ServiceAccount has bee configured for RemoteSystemdDeployer")
 	}
@@ -224,7 +224,7 @@ func (r *RemoteSystemdDeployer) CreateUserOnRemote() error {
 	return nil
 }
 
-func (r *RemoteSystemdDeployer) MakeInstallDir(sudo bool) error {
+func (r *RemoteSystemdBinDeployer) MakeInstallDir(sudo bool) error {
 	argsDirs := []string{r.InstallDir, "/temp/utils"}
 	for _, path := range argsDirs {
 		if sudo {
@@ -258,7 +258,7 @@ func mkdirArgsWithPath(path string) []string {
 
 // UploadAndMove uploads a file to a temporary directory under /tmp and moves it to the final destination using sudo.
 // It ensures idempotency by creating a unique timestamped subdirectory for each upload, and cleans up the temp directory afterward.
-func (r *RemoteSystemdDeployer) UploadAndMove(sourcePath, destinationPath string, modExecutable bool) error {
+func (r *RemoteSystemdBinDeployer) UploadAndMove(sourcePath, destinationPath string, modExecutable bool) error {
 
 	stat, err := os.Stat(sourcePath)
 	if err != nil {
@@ -319,7 +319,7 @@ func (r *RemoteSystemdDeployer) UploadAndMove(sourcePath, destinationPath string
 
 // MoveAndCopyDirectory uploads a local directory to a remote temporary path and copies its contents to the destination.
 // It ensures idempotency by creating a unique timestamped directory under /tmp.
-func (r *RemoteSystemdDeployer) MoveAndCopyDirectory(sourceDir, destinationDir string) error {
+func (r *RemoteSystemdBinDeployer) MoveAndCopyDirectory(sourceDir, destinationDir string) error {
 	// Generate a timestamped temp directory: /tmp/YYYYMMDD_HHmmss
 	timestamp := time.Now().Format("20060102_150405")
 	tmpDir := path.Join("/tmp", timestamp)

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func (r *RemoteSystemdDeployer) TarCopyMove(sourceDir, destinationDir string, excludes []string, sudo bool) error {
+func (r *RemoteSystemdBinDeployer) TarCopyMove(sourceDir, destinationDir string, excludes []string, sudo bool) error {
 	// Generate a timestamped tmp dir
 	timestamp := time.Now().Format("20060102_150405")
 	tmpDir := path.Join("/tmp", timestamp)
@@ -20,7 +20,7 @@ func (r *RemoteSystemdDeployer) TarCopyMove(sourceDir, destinationDir string, ex
 
 	// Step 1: Tar the local directory
 	slog.Info("Creating tar.gz archive", slog.String("sourceDir", sourceDir), slog.String("tmpTarPath", tmpTarPath))
-	err := r.Archiver.CreateTarGzWithExcludes(sourceDir, tmpTarPath, excludes)
+	err := r.Archiver.Compress(sourceDir, tmpTarPath, excludes)
 	if err != nil {
 		return fmt.Errorf("failed to create tar.gz: %w", err)
 	}
