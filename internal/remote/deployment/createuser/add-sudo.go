@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -27,7 +28,16 @@ func CreateSudoersFile(name string, isGroup bool, allowedCommands []string, nopa
 
 	var sudoRule string
 	if len(allowedCommands) > 0 {
-		cmds := strings.Join(allowedCommands, ", ")
+		absoluteCommands := make([]string, 0, len(allowedCommands))
+		for _, cmd := range allowedCommands {
+			absPath, err := exec.LookPath(cmd)
+			if err != nil {
+				return fmt.Errorf("failed to find absolute path for command '%s': %w", cmd, err)
+			}
+			absoluteCommands = append(absoluteCommands, absPath)
+		}
+
+		cmds := strings.Join(absoluteCommands, ", ")
 		if nopasswd {
 			sudoRule = fmt.Sprintf("%s ALL=(ALL) NOPASSWD: %s", targetName, cmds)
 		} else {

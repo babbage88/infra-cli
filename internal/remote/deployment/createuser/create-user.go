@@ -238,10 +238,12 @@ func main() {
 
 		if len(allowedCommands) > 0 && allowedCommands != "ALL" {
 			for _, str := range strings.Split(allowedCommands, ",") {
+				fmt.Printf("Allowed Command: %s\n", str)
 				allowedCmdSliceArg = append(allowedCmdSliceArg, str)
+				fmt.Println(allowedCmdSliceArg)
 			}
 
-			CreateSudoersFile(username, false, []string{}, addSudoNoPassword)
+			CreateSudoersFile(username, false, allowedCmdSliceArg, addSudoNoPassword)
 			return
 		}
 	}
