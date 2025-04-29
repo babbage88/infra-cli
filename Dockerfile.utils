@@ -1,0 +1,48 @@
+# Step 1: Define the base image as an argument with a default value
+ARG base_image=ubuntu:24.04
+
+# Step 2: Use the official Golang image for building the application
+FROM golang:latest as builder
+
+# Step 3: Install necessary dependencies for the build
+RUN apt-get update && apt-get install -y \
+  sudo \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Step 4: Set the working directory and copy the necessary Go files
+WORKDIR /app
+
+# Copy only the relevant files to avoid context bloat
+#COPY ./internal/remote/deployment/createuser ./internal/remote/deployment/
+COPY ./go.mod ./go.sum ./
+
+# Step 5: Download Go modules
+RUN go mod tidy
+
+COPY . /app
+
+# Step 6: Build the Go application
+#RUN go build -v -o ./remote_utils/bin/user-utils ./internal/remote/deployment/createuser
+RUN make build
+
+# Step 7: Use the base image specified by the build argument for the runtime stage
+FROM ${base_image} as runtime
+
+WORKDIR /app
+
+# Step 8: Install necessary runtime dependencies (e.g., sudo)
+RUN apt-get update && apt-get install -y \
+  sudo \
+  && rm -rf /var/lib/apt/lists/*
+
+# Step 9: Copy the built Go binary from the builder stage
+#COPY --from=builder /app/remote_utils/bin/user-utils /usr/local/bin/
+
+COPY --from=builder /app /app 
+#COPY . /app 
+# Step 10: Set the entrypoint to run the application interactively
+ENTRYPOINT ["/bin/bash"]
+
+# Default command can be overridden, e.g., by passing args to docker run
+#CMD ["--help"]

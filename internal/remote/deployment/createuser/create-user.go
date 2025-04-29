@@ -40,15 +40,31 @@ var (
 func buildCommandArgs(useSudo bool, newUid int64, newUsername string, newGid int64) (string, []string) {
 	newUidStr := fmt.Sprintf("%d", newUid)
 	newGidStr := fmt.Sprintf("%d", newGid)
+	specifyGid := newUid != newGid
 	var cmdBase string
 	var cmdArgs []string
 	if useSudo {
-		cmdBase = sudoCmd
-		cmdArgs = []string{useraddCmd, useraddUidFlag, newUidStr, useraddGidFlag, newGidStr, newUsername}
-		return cmdBase, cmdArgs
-	} else {
+		switch specifyGid {
+		case true:
+			slog.Info("User specified the newGid, adding to create command")
+			cmdBase = sudoCmd
+			cmdArgs = []string{useraddCmd, useraddUidFlag, newUidStr, useraddGidFlag, newGidStr, newUsername}
+			return cmdBase, cmdArgs
+		default:
+			cmdBase = sudoCmd
+			cmdArgs = []string{useraddCmd, useraddUidFlag, newGidStr, newUsername}
+			return cmdBase, cmdArgs
+		}
+
+	}
+	switch specifyGid {
+	case true:
 		cmdBase = useraddCmd
 		cmdArgs = []string{useraddUidFlag, newUidStr, useraddGidFlag, newGidStr, newUsername}
+		return cmdBase, cmdArgs
+	default:
+		cmdBase = useraddCmd
+		cmdArgs = []string{useraddUidFlag, newUidStr, newUsername}
 		return cmdBase, cmdArgs
 	}
 
@@ -159,13 +175,17 @@ func main() {
 	var trySudo bool
 
 	flag.StringVar(&username, "username", "", "Username to create")
-	flag.Int64Var(&uid, "uid", 8888, "UID for the new user")
-	flag.Int64Var(&gid, "gid", uid, "GID for the new user")
+	flag.Int64Var(&uid, "uid", 9898, "UID for the new user")
+	flag.Int64Var(&gid, "gid", -1, "Specify a GID that is different from the GID. By default, the user's GID will be the same as the UID.")
 	flag.BoolVar(&checkSudo, "check-sudo", false, "Check if the current user has sudo privileges")
 	flag.BoolVar(&trySudo, "try-sudo", false, "Try running a command with sudo that host no side effects. eg: sudo ls /")
 
 	// Parse the flags
 	flag.Parse()
+
+	if gid == 1 {
+		flag.Set("gid", fmt.Sprintf("%d", uid))
+	}
 
 	if trySudo {
 		trySudoLsCommand()
