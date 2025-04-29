@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"strings"
 )
 
 const (
@@ -173,12 +174,20 @@ func main() {
 	var gid int64
 	var checkSudo bool
 	var trySudo bool
+	var addSudo bool
+	var addSudoNoPassword bool
+	var addSudoAll bool
+	var allowedCommands string
 
 	flag.StringVar(&username, "username", "", "Username to create")
 	flag.Int64Var(&uid, "uid", 9898, "UID for the new user")
 	flag.Int64Var(&gid, "gid", -1, "Specify a GID that is different from the GID. By default, the user's GID will be the same as the UID.")
 	flag.BoolVar(&checkSudo, "check-sudo", false, "Check if the current user has sudo privileges")
 	flag.BoolVar(&trySudo, "try-sudo", false, "Try running a command with sudo that host no side effects. eg: sudo ls /")
+	flag.BoolVar(&addSudo, "add-sudo", false, "Create sudoers files for the new user")
+	flag.BoolVar(&addSudoNoPassword, "nopass-sudo", false, "If adding a new suoders.d file specifi NOPASSWORD")
+	flag.BoolVar(&addSudoAll, "all-sudo", false, "If adding a new suoders.d, allow all commands")
+	flag.StringVar(&allowedCommands, "allowed-commands", "", "Allowed sudo command, seperate multiple with a comma")
 
 	// Parse the flags
 	flag.Parse()
@@ -219,4 +228,21 @@ func main() {
 	}
 
 	slog.Info("User added successfully.", slog.String("username", username), slog.Int64("uid", uid), slog.Int64("gid", gid))
+
+	if addSudo {
+		var allowedCmdSliceArg []string
+		if addSudoAll || allowedCommands == "ALL" {
+			CreateSudoersFile(username, false, []string{}, addSudoNoPassword)
+			return
+		}
+
+		if len(allowedCommands) > 0 && allowedCommands != "ALL" {
+			for _, str := range strings.Split(allowedCommands, ",") {
+				allowedCmdSliceArg = append(allowedCmdSliceArg, str)
+			}
+
+			CreateSudoersFile(username, false, []string{}, addSudoNoPassword)
+			return
+		}
+	}
 }

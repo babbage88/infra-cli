@@ -26,7 +26,7 @@ RUN go mod tidy
 ENV HOME=/root
 ENV GOPATH=$HOME/go
 COPY . /app
-RUN make install
+RUN touch default.yaml && make install
 
 # Step 6: Build the Go application
 #RUN go build -v -o ./remote_utils/bin/user-utils ./internal/remote/deployment/createuser
