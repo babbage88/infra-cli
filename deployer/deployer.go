@@ -13,17 +13,21 @@ import (
 )
 
 const (
-	deployUtilsPath           string = "remote_utils/bin"
-	deployUtilsTar            string = "remote_utils.tar.gz"
-	remoteUtilsPath           string = "/tmp/utils"
-	validateUserUtilPath      string = "remote_utils/bin/validate-user"
-	remoteValidateUserBaseCmd string = "validate-user"
-	mkdirCmdBase              string = "mkdir"
-	chmodCmdBase              string = "chmod"
-	chownCmdBase              string = "chown"
-	chmodFileExecutableArg    string = "+x"
-	validateUsernameCmdFlag   string = "-username"
-	validateUidCmdFlag        string = "-uid"
+	deployUtilsPath             string = "remote_utils/bin"
+	deployUtilsTar              string = "remote_utils.tar.gz"
+	remoteUtilsPath             string = "/tmp/utils"
+	validateUserUtilPath        string = "remote_utils/bin/validate-user"
+	remoteValidateUserBaseCmd   string = "validate-user"
+	remoteUserUtils             string = "user-utils"
+	remoteUserUtilsUsernameFlag string = "-username"
+	remoteUserUtilsUidFlag      string = "-uid"
+	mkdirCmdBase                string = "mkdir"
+	chmodCmdBase                string = "chmod"
+	chownCmdBase                string = "chown"
+	chmodFileExecutableArg      string = "+x"
+
+	validateUsernameCmdFlag string = "-username"
+	validateUidCmdFlag      string = "-uid"
 
 	mkdirArgs string = "-p"
 	sudoCmd   string = "sudo"
@@ -222,17 +226,19 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	}
 
 	// Create service user if needed
-	r.CreateUserOnRemote()
+	userUtilsPath := filepath.Join(remoteUtilsPath, remoteUserUtils)
+	r.CreateUserOnRemote(userUtilsPath)
 
 	return nil
 }
 
-func (r *RemoteSystemdBinDeployer) CreateUserOnRemote() error {
+func (r *RemoteSystemdBinDeployer) CreateUserOnRemote(userUtilsPath string) error {
 	if r.ServiceAccount == nil {
 		return fmt.Errorf("No remote ServiceAccount has bee configured for RemoteSystemdDeployer")
 	}
 	for uid, username := range r.ServiceAccount {
-		err := r.SshClient.RunCommand("useradd", []string{"-m", username})
+		Uid := fmt.Sprintf("%d", uid)
+		err := r.SshClient.RunCommand(sudoCmd, []string{userUtilsPath, remoteUserUtilsUsernameFlag, username, remoteUserUtilsUidFlag, Uid})
 		if err != nil {
 			slog.Error("Failed to create user:", slog.String("ServiceUser", username), slog.Int64("uid", uid), slog.String("error", err.Error()))
 			return fmt.Errorf("failed to create user: %w", err)
