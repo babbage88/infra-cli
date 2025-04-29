@@ -183,7 +183,7 @@ func main() {
 	// Parse the flags
 	flag.Parse()
 
-	if gid == 1 {
+	if gid == -1 {
 		flag.Set("gid", fmt.Sprintf("%d", uid))
 	}
 

@@ -1,0 +1,50 @@
+**default.yaml
+lxc_*yaml
+
+scratch.MD
+peer_A**
+lxc_*.yaml
+scratch.sh
+output.tar.gz
+lxc_batch.yaml
+proxmox.yaml
+vendor/
+**default.yaml
+default.yaml**
+certs.zip**
+config.yaml**
+**config.yaml
+**.db
+**res.json
+**clidb
+clidb**
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+#
+# Binaries for programs and plugins
+goinfracli*
+go-acme-cli
+**.env
+.env**
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+hostnames.yaml
