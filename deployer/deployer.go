@@ -15,8 +15,12 @@ import (
 const (
 	deployUtilsPath             string = "remote_utils/bin"
 	deployUtilsTar              string = "remote_utils.tar.gz"
-	validateUserUtilPath        string = "remote_utils/bin/validate-user"
-	remoteValidateUserBaseCmd   string = "validate-user"
+	validateUserUtilPath        string = "remote_utils/bin/deploy-utils"
+	remoteValidateUserBaseCmd   string = "deploy-utils"
+	remoteSystemdBaseCmd        string = "deploy-utils"
+	remoteSystemdNoVu           string = `--validate-user=false`
+	remoteSystemdEnvFlag        string = "--env-vars"
+	remoteSystemdEnableSvcFlag  string = "--enable-systemd"
 	remoteUserUtils             string = "user-utils"
 	remoteUserUtilsUsernameFlag string = "-username"
 	cpCmd                       string = "cp"
@@ -150,7 +154,6 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 		return fmt.Errorf("source-bin must be provided")
 	}
 	sourceBinPath, err = filepath.Abs(r.SourceBin)
-
 	if err != nil {
 		slog.Error("Error retrieving filepath.Abs from SourceBin", "error", err.Error())
 		return err
@@ -212,8 +215,8 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	// Validate service user
 	for uid, username := range r.ServiceAccount {
 		if err != nil {
-			slog.Error("error encounter making validate-user executable", "error", err.Error())
-			return fmt.Errorf("error making validate-user util executable %w", err)
+			slog.Error("error encounter making deploy-utils executable", "error", err.Error())
+			return fmt.Errorf("error making deploy-utils util executable %w", err)
 		}
 		remoteValidateUserCmdArgs := []string{
 			filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd),

@@ -120,7 +120,7 @@ func formatEnvVars(envVars map[string]string) string {
 	// Format environment variables for systemd unit file
 	var formattedVars []string
 	for key, value := range envVars {
-		envLine := fmt.Sprintf(`Environment="%s=%s"`, key, value)
+		envLine := fmt.Sprintf(`Environment="%s=%s\n"`, key, value)
 		formattedVars = append(formattedVars, envLine)
 	}
 	return fmt.Sprintf("%s", formattedVars)

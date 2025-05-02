@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"log"
+	"log/slog"
 	"strings"
 )
 
 func parseCmdStringToSlice(cmdString string) []string {
 	cmdSlice := strings.Fields(cmdString)
-	//retVal := make([]string, len(cmdSlice))
+	// retVal := make([]string, len(cmdSlice))
 
-	//retVal = append(retVal, cmdSlice...)
+	// retVal = append(retVal, cmdSlice...)
 
 	return cmdSlice
 }
@@ -55,5 +56,18 @@ func parseCmdStringToMap(cmdString string) map[string][]string {
 	}
 
 	return retVal
+}
 
+func parseEnvarsFromStringFlag(strFlag string) map[string]string {
+	envVarMap := make(map[string]string)
+	envVarsSlice := strings.Split(strFlag, ",")
+	for _, value := range envVarsSlice {
+		enVar := strings.Split(value, "=")
+		envKey := enVar[0]
+		envVal := enVar[1]
+		slog.Debug("Parsed envar", slog.String(envKey, envVal))
+		envVarMap[envKey] = envVal
+
+	}
+	return envVarMap
 }

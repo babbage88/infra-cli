@@ -17,7 +17,7 @@ func formatEnvVars(envVars map[string]string) string {
 	return fmt.Sprintf("%s", formattedVars)
 }
 
-func createSystemdUnitOnLocal(appName, systemdDir, installDir, execBin, svcUser string, envVars map[string]string) error {
+func createSystemdUnitOnLocal(appName, systemdDir, installDir, execBin, svcUser, envVars string) error {
 	// Create the systemd unit file
 	unitFilePath := filepath.Join(systemdDir, fmt.Sprintf("%s.service", appName))
 	unitFile, err := os.Create(unitFilePath)
@@ -41,7 +41,7 @@ Environment=%s
 
 [Install]
 WantedBy=multi-user.target
-`, appName, execBin, installDir, svcUser, svcUser, formatEnvVars(envVars))
+`, appName, execBin, installDir, svcUser, svcUser, envVars)
 
 	_, err = unitFile.WriteString(systemdContent)
 	if err != nil {

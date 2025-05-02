@@ -30,7 +30,7 @@ utils-dir:
 
 build-validate:
 	@echo "**** building validate-user utility outdir: $(REMOTE_UTILS_DIR) src: $(VALIDATE_USER_UTIL_SRC)"
-	go build -o $(REMOTE_UTILS_DIR)/validate-user $(VALIDATE_USER_UTIL_SRC) && chmod +x $(REMOTE_UTILS_DIR)/validate-user 
+	go build -o $(REMOTE_UTILS_DIR)/deploy-utils $(VALIDATE_USER_UTIL_SRC) && chmod +x $(REMOTE_UTILS_DIR)/deploy-utils
 	go build -o $(REMOTE_UTILS_DIR)/user-utils $(USERS_UTIL_SRC) && chmod +x $(REMOTE_UTILS_DIR)/user-utils
 
 utils: utils-dir build-validate
