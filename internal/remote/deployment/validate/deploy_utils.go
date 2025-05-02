@@ -56,13 +56,25 @@ func ValidateRemoteUidUnamePair(serviceUser string, serviceUid int64) error {
 
 func main() {
 	var validateUser bool
+	var installService bool
 	var username string
 	var uid int64
+	var appName string
+	var installDir string
+	var execBin string
+	var systemdDir string
 	hostname, _ := os.Hostname()
 
 	flag.BoolVar(&validateUser, "validate-user", true, "Validate a username/UID pair")
+	flag.BoolVar(&installService, "enable-systemd", true, "Install Systemd Unit File and start service")
+
 	flag.StringVar(&username, "username", "", "Username to validate")
 	flag.Int64Var(&uid, "uid", 8888, "UID to validate")
+
+	flag.StringVar(&appName, "app-name", "", "Application name")
+	flag.StringVar(&installDir, "install-dir", "", "Application install dir")
+	flag.StringVar(&execBin, "exec-bin", "", "Binary name")
+	flag.StringVar(&systemdDir, "systemd-dir", "/etc/systemd", "Systemd unit file directory")
 	flag.Parse()
 
 	if validateUser {

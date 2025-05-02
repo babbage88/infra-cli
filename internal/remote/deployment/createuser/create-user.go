@@ -222,9 +222,19 @@ func main() {
 
 	// Validate and add the user
 	err := AddUserWithUid(*&username, *&uid, *&gid)
-	if err != nil {
-		log.Printf("Error: %v\n", err)
+	switch err.(type) {
+	case *KnownUserAndUidExistsError:
+		log.Println("User already exists, continuing.")
+		os.Exit(0)
+	case *UsernameAndUidMismatchError:
+		log.Println("Username or UID exists, but they do not match.")
 		os.Exit(1)
+	case nil:
+		log.Println("Username and UID are a valid pair; neither currently exist.")
+		os.Exit(0)
+	default:
+		log.Printf("Unexpected error validating user: %s\n", err)
+		os.Exit(3)
 	}
 
 	slog.Info("User added successfully.", slog.String("username", username), slog.Int64("uid", uid), slog.Int64("gid", gid))

@@ -76,14 +76,12 @@ func WithEnvars(envVars map[string]string) RemoteSystemdDeployerOptions {
 	return func(r *RemoteSystemdBinDeployer) {
 		r.EnvVars = envVars
 	}
-
 }
 
 func WithServiceAccount(s map[int64]string) RemoteSystemdDeployerOptions {
 	return func(r *RemoteSystemdBinDeployer) {
 		r.ServiceAccount = s
 	}
-
 }
 
 func WithRemoteSshUser(s string) RemoteSystemdDeployerOptions {
@@ -143,7 +141,6 @@ func (r *RemoteSystemdBinDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase
 
 func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	slog.Info("Starting remote deployment")
-	fmt.Println("SourceBin Path", r.SourceBin)
 
 	var err error
 	var sourceBinPath string
@@ -152,9 +149,7 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	if r.SourceBin == "" {
 		return fmt.Errorf("source-bin must be provided")
 	}
-	fmt.Println("SourceBin Path", r.SourceBin)
 	sourceBinPath, err = filepath.Abs(r.SourceBin)
-	fmt.Println("sourceBinPAth Path", sourceBinPath)
 
 	if err != nil {
 		slog.Error("Error retrieving filepath.Abs from SourceBin", "error", err.Error())
@@ -175,22 +170,27 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	}
 	slog.Info("Using for app-name", slog.String("AppName", r.AppName))
 
-	dynamicTempDir := generateUniqueDestinationPath("/tmp")
-	remoteUtilsPath := filepath.Join(dynamicTempDir, "utils")
+	remoteUtilsPath := generateUniqueDestinationPath("/tmp", "utils")
+	remoteTempApps := generateUniqueDestinationPath("/tmp", "apps")
 
 	slog.Info("Remote temp path for utils", slog.String("remote-utils-path", remoteUtilsPath))
 
 	// Create remote install dir
 	sudo := true
-	err = r.MakeInstallDir(sudo, []string{r.InstallDir, remoteUtilsPath})
+	err = r.MakeInstallDir(sudo, []string{r.InstallDir, remoteUtilsPath, remoteTempApps})
 	if err != nil {
 		return fmt.Errorf("error creating remote path %w", err)
 	}
 
 	// Upload application binary
-	err = r.UploadAndMoveFile(sourceBinPath, r.InstallDir, true)
+	err = r.UploadAndMoveFile(sourceBinPath, r.InstallDir)
 	if err != nil {
 		return fmt.Errorf("error uploading source bin %w", err)
+	}
+
+	err = r.chmodRemoteFileExecutable(filepath.Join(r.InstallDir, r.DestinationBin))
+	if err != nil {
+		return fmt.Errorf("error setting file executable file: %s error: %w", filepath.Join(r.InstallDir, r.DestinationBin), err)
 	}
 
 	// Upload utils
@@ -198,7 +198,13 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	if err != nil {
 		return fmt.Errorf("error uploading utils %w", err)
 	}
-	err = r.chmodRemoteFileExecutable(filepath.Join(remoteUtilsPath))
+
+	err = r.chmodRemoteFileExecutable(filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd))
+	if err != nil {
+		return fmt.Errorf("error making remote_utils executable %w", err)
+	}
+
+	err = r.chmodRemoteFileExecutable(filepath.Join(remoteUtilsPath, remoteUserUtils))
 	if err != nil {
 		return fmt.Errorf("error making remote_utils executable %w", err)
 	}
@@ -209,7 +215,8 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 			slog.Error("error encounter making validate-user executable", "error", err.Error())
 			return fmt.Errorf("error making validate-user util executable %w", err)
 		}
-		remoteValidateUserCmdArgs := []string{filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd),
+		remoteValidateUserCmdArgs := []string{
+			filepath.Join(remoteUtilsPath, remoteValidateUserBaseCmd),
 			validateUidCmdFlag,
 			fmt.Sprintf("%d", uid),
 			validateUsernameCmdFlag,
@@ -268,17 +275,9 @@ func (r *RemoteSystemdBinDeployer) MakeInstallDir(sudo bool, argsDirs []string) 
 	}
 	return nil
 }
-func mkdirArgsWithPath(path string) []string {
-	retVal := make([]string, 0, 2)
-	retVal = append(retVal, mkdirRecursivePflag)
-	retVal = append(retVal, path)
-	fmt.Println(retVal)
-	return retVal
-}
 
 // UploadAndMoveFile uploads a file to a temporary directory under /tmp and moves it to the final destination using sudo.
-func (r *RemoteSystemdBinDeployer) UploadAndMoveFile(sourcePath, destinationPath string, modExecutable bool) error {
-
+func (r *RemoteSystemdBinDeployer) UploadAndMoveFile(sourcePath, destinationPath string) error {
 	stat, err := os.Stat(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to stat source path: %w", err)
@@ -290,7 +289,7 @@ func (r *RemoteSystemdBinDeployer) UploadAndMoveFile(sourcePath, destinationPath
 		return r.UploadAndMoveDirectory(sourcePath, destinationPath)
 	}
 
-	tmpDir := generateUniqueDestinationPath("/tmp")
+	tmpDir := generateUniqueDestinationPath("/tmp", "files2copy")
 
 	// Create the temp directory on the remote server
 	mkdirArgs := []string{mkdirRecursivePflag, tmpDir}
@@ -317,14 +316,6 @@ func (r *RemoteSystemdBinDeployer) UploadAndMoveFile(sourcePath, destinationPath
 		return fmt.Errorf("failed to move file to destination with sudo: %w", err)
 	}
 
-	if modExecutable {
-		err := r.chmodRemoteFileExecutable(destinationPath)
-
-		if err != nil {
-			return fmt.Errorf("failed to chmod destination file: %w", err)
-		}
-	}
-
 	// Clean up the temporary upload directory
 	cleanupCmdArgs := []string{rmCmd, rmRecursiveForceFlag, tmpDir}
 	slog.Info("cleaning up the tmp direcotry", slog.String("tmpDir", tmpDir))
@@ -340,7 +331,7 @@ func (r *RemoteSystemdBinDeployer) UploadAndMoveFile(sourcePath, destinationPath
 // It ensures idempotency by creating a unique timestamped directory under /tmp.
 func (r *RemoteSystemdBinDeployer) UploadAndMoveDirectory(sourceDir, destinationDir string) error {
 	// Generate a timestamped temp directory: /tmp/YYYYMMDD_HHmmss
-	tmpDir := generateUniqueDestinationPath("/tmp")
+	tmpDir := generateUniqueDestinationPath("/tmp/", "appfiles")
 
 	// Create the temp directory on the remote server
 	mkdirArgs := []string{mkdirRecursivePflag, tmpDir}
@@ -385,7 +376,7 @@ func (r *RemoteSystemdBinDeployer) UploadAndMoveDirectory(sourceDir, destination
 	return nil
 }
 
-func (r *RemoteSystemdBinDeployer) chmodFileExecutable(path string) error {
+func (r *RemoteSystemdBinDeployer) chmodRemoteFileExecutable(path string) error {
 	chmodCmdArgs := []string{chmodCmdBase, chmodFileExecutableArg, path}
 	err := r.SshClient.RunCommand(sudoCmd, chmodCmdArgs)
 	if err != nil {
@@ -394,10 +385,11 @@ func (r *RemoteSystemdBinDeployer) chmodFileExecutable(path string) error {
 	return nil
 }
 
-func generateUniqueDestinationPath(baseDir string) string {
+func generateUniqueDestinationPath(baseDir string, subDir string) string {
 	now := time.Now()
-	timestamp := now.Format("020106_150405") // DDMMYY_HHmmss
-	remoteTmpBase := fmt.Sprintf("%s/%s", baseDir, timestamp)
+	unixTime := now.Unix()
+	unixTimeStr := fmt.Sprintf("%d", unixTime)
+	remoteTmpBase := fmt.Sprintf("%s/%s/%s", baseDir, unixTimeStr, subDir)
 	remoteDynamicPath := filepath.Join(remoteTmpBase)
 	return remoteDynamicPath
 }

@@ -4,6 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"time"
+
+	"github.com/babbage88/tint"
 )
 
 // CustomHandler wraps another slog.Handler and modifies the time format
@@ -23,13 +26,13 @@ func (h *CustomHandler) Handle(ctx context.Context, r slog.Record) error {
 }
 
 func configureDefaultLogger(level slog.Level) {
-	logLevel := &slog.LevelVar{}
-	logLevel.Set(level)
+	w := os.Stderr
 
-	textHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	})
-
-	customHandler := &CustomHandler{Handler: textHandler}
-	slog.SetDefault(slog.New(customHandler))
+	// set global logger with custom options
+	slog.SetDefault(slog.New(
+		tint.NewHandler(w, &tint.Options{
+			Level:      level,
+			TimeFormat: time.Kitchen,
+		}),
+	))
 }

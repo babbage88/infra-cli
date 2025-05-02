@@ -16,6 +16,7 @@ require (
 )
 
 require (
+	github.com/babbage88/tint v0.0.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 )
