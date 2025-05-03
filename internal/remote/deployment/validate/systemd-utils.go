@@ -7,16 +7,6 @@ import (
 	"path/filepath"
 )
 
-func formatEnvVars(envVars map[string]string) string {
-	// Format environment variables for systemd unit file
-	var formattedVars []string
-	for key, value := range envVars {
-		envLine := fmt.Sprintf(`Environment="%s=%s"`, key, value)
-		formattedVars = append(formattedVars, envLine)
-	}
-	return fmt.Sprintf("%s", formattedVars)
-}
-
 func createSystemdUnitOnLocal(appName, systemdDir, installDir, execBin, svcUser, envVars string) error {
 	// Create the systemd unit file
 	unitFilePath := filepath.Join(systemdDir, fmt.Sprintf("%s.service", appName))
@@ -37,7 +27,7 @@ WorkingDirectory=%s
 User=%s
 Group=%s
 Restart=on-failure
-Environment=%s
+%s
 
 [Install]
 WantedBy=multi-user.target

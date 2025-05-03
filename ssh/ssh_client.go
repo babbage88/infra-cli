@@ -124,7 +124,7 @@ func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstU
 	return &remoteDeployAgent, nil
 }
 
-func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, envVars map[string]string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
+func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
 	sshClient, err := initializeSshClient(hostname, sshUser, port, sshKey, sshPassphrase, agent)
 	if err != nil {
 		log.Printf("Error initializing ssh client %s\n", err.Error())
@@ -133,7 +133,6 @@ func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, e
 
 	remoteDeployAgent := RemoteAppDeploymentAgent{
 		SshClient: sshClient,
-		EnvVars:   envVars,
 	}
 
 	return &remoteDeployAgent, nil

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/babbage88/infra-cli/internal/archiver"
@@ -19,8 +20,13 @@ const (
 	remoteValidateUserBaseCmd   string = "deploy-utils"
 	remoteSystemdBaseCmd        string = "deploy-utils"
 	remoteSystemdNoVu           string = `--validate-user=false`
-	remoteSystemdEnvFlag        string = "--env-vars"
-	remoteSystemdEnableSvcFlag  string = "--enable-systemd"
+	remoteSystemdExecBinFlag    string = "--exec-bin"
+	remoteSystemdEnableSvcFlag  string = "--enable-systemd=true"
+	remoteSystemdAppNameFlag    string = "--app-name"
+	remoteSystemdEnvVarsFlag    string = "--env-vars"
+	remoteSystemdInstalldirFlag string = "--install-dir"
+	remoteSystemdSvcUserFlag    string = "--svcuser"
+	remoteSystemdDir            string = "--systemd-dir"
 	remoteUserUtils             string = "user-utils"
 	remoteUserUtilsUsernameFlag string = "-username"
 	cpCmd                       string = "cp"
@@ -124,13 +130,12 @@ func WithSourceBin(s string) RemoteSystemdDeployerOptions {
 	}
 }
 
-func (r *RemoteSystemdBinDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase string, EnvVars map[string]string, useSshAgent bool, sshPort uint) error {
+func (r *RemoteSystemdBinDeployer) StartSshDeploymentAgent(sshKey, sshPassphrase string, useSshAgent bool, sshPort uint) error {
 	client, err := ssh.InitializeRemoteSshAgent(
 		r.RemoteHostName,
 		r.RemoteSshUser,
 		sshKey,
 		sshPassphrase,
-		EnvVars,
 		useSshAgent,
 		sshPort,
 	)
@@ -235,6 +240,7 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	// Create service user if needed
 	userUtilsPath := filepath.Join(remoteUtilsPath, remoteUserUtils)
 	r.CreateUserOnRemote(userUtilsPath)
+	r.CreateUnitFileOnRemote(remoteUtilsPath)
 
 	return nil
 }
@@ -252,6 +258,17 @@ func (r *RemoteSystemdBinDeployer) CreateUserOnRemote(userUtilsPath string) erro
 		}
 	}
 
+	return nil
+}
+
+func (r *RemoteSystemdBinDeployer) CreateUnitFileOnRemote(utilsDir string) error {
+	_, args := r.systemdCmd(utilsDir)
+	output, err := r.SshClient.RunCommandAndCaptureOutput(sudoCmd, args)
+	if err != nil {
+		slog.Error("Failed to create unit file on remote:", slog.String("error", err.Error()))
+		return fmt.Errorf("failed to create unit file: %w", err)
+	}
+	fmt.Println(string(output))
 	return nil
 }
 
@@ -395,4 +412,36 @@ func generateUniqueDestinationPath(baseDir string, subDir string) string {
 	remoteTmpBase := fmt.Sprintf("%s/%s/%s", baseDir, unixTimeStr, subDir)
 	remoteDynamicPath := filepath.Join(remoteTmpBase)
 	return remoteDynamicPath
+}
+
+func (r *RemoteSystemdBinDeployer) formatEnvVarsForStringFlag() string {
+	var envStr strings.Builder
+	envStr.WriteString("Environment=")
+	if len(r.EnvVars) != 0 {
+		for key, value := range r.EnvVars {
+			// FormattedEnv := fmt.Sprintf("Environment=%s=%s\n", key, value)
+			envStr.WriteString(key)
+			envStr.WriteString("=")
+			envStr.WriteString(value)
+			envStr.WriteString(" ")
+		}
+	}
+
+	return strings.TrimSuffix(envStr.String(), ",")
+}
+
+func (r *RemoteSystemdBinDeployer) systemdCmd(utilsDir string) (string, []string) {
+	var cmd string = sudoCmd
+	fullUtilsPath := filepath.Join(utilsDir, remoteSystemdBaseCmd)
+	args := []string{
+		fullUtilsPath,
+		remoteSystemdNoVu,
+		remoteSystemdEnableSvcFlag,
+		remoteSystemdAppNameFlag, r.AppName,
+		remoteSystemdInstalldirFlag, r.InstallDir, remoteSystemdExecBinFlag, r.DestinationBin,
+		remoteSystemdEnvVarsFlag, r.formatEnvVarsForStringFlag(),
+		remoteSystemdDir, r.SystemdDir,
+	}
+
+	return cmd, args
 }

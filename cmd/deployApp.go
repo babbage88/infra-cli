@@ -54,7 +54,6 @@ var deployCmd = &cobra.Command{
 		err := appDeployer.StartSshDeploymentAgent(
 			rootViperCfg.GetString("ssh_key"),
 			rootViperCfg.GetString("ssh_passphrase"),
-			deployFlags.EnvVars,
 			rootViperCfg.GetBool("ssh_use_agent"),
 			rootViperCfg.GetUint("ssh_port"),
 		)
