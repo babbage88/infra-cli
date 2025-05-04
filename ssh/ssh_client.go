@@ -85,6 +85,15 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 	return client, err
 }
 
+func InitializeSshClient(hostname, username, sshKey, sshPassphrase string, useAgent bool, port uint) (*goph.Client, error) {
+	client, err := initializeSshClient(hostname, username, port, sshKey, sshPassphrase, useAgent)
+	if err != nil {
+		return client, SshErrorWrapper(500, err, "Error initializing ssh client")
+	}
+	slog.Info("ssh client initalized successfully")
+	return client, nil
+}
+
 func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshPassword string, envVars map[string]string, port uint) (*RemoteAppDeploymentAgent, error) {
 	sshClient, err := goph.NewConn(&goph.Config{
 		User:     sshUser,
@@ -94,7 +103,7 @@ func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, ds
 		Callback: VerifyHost,
 	})
 	if err != nil {
-		log.Printf("Error initializing ssh client %s\n", err.Error())
+		slog.Error("error initializing ssh client", slog.String("error", err.Error()))
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
 	}
 	remoteDeployAgent := RemoteAppDeploymentAgent{
