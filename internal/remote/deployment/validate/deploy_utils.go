@@ -133,6 +133,12 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("service created")
+		err = manageSystemdServiceOnLocal(appName)
+		if err != nil {
+			slog.Error("Error installing new systemd service", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		slog.Info("Service successfully started..")
 		os.Exit(0)
 	}
 }

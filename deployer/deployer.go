@@ -432,15 +432,21 @@ func (r *RemoteSystemdBinDeployer) formatEnvVarsForStringFlag() string {
 
 func (r *RemoteSystemdBinDeployer) systemdCmd(utilsDir string) (string, []string) {
 	var cmd string = sudoCmd
-	fullUtilsPath := filepath.Join(utilsDir, remoteSystemdBaseCmd)
-	args := []string{
-		fullUtilsPath,
-		remoteSystemdNoVu,
-		remoteSystemdEnableSvcFlag,
-		remoteSystemdAppNameFlag, r.AppName,
-		remoteSystemdInstalldirFlag, r.InstallDir, remoteSystemdExecBinFlag, r.DestinationBin,
-		remoteSystemdEnvVarsFlag, r.formatEnvVarsForStringFlag(),
-		remoteSystemdDir, r.SystemdDir,
+	var args []string
+	for _, value := range r.ServiceAccount {
+
+		fullUtilsPath := filepath.Join(utilsDir, remoteSystemdBaseCmd)
+		args = []string{
+			fullUtilsPath,
+			remoteSystemdNoVu,
+			remoteSystemdEnableSvcFlag,
+			remoteSystemdAppNameFlag, r.AppName,
+			remoteSystemdInstalldirFlag, r.InstallDir, remoteSystemdExecBinFlag, r.DestinationBin,
+			remoteSystemdEnvVarsFlag, r.formatEnvVarsForStringFlag(),
+			remoteSystemdDir, r.SystemdDir,
+			remoteSystemdSvcUserFlag, value,
+		}
+		break
 	}
 
 	return cmd, args

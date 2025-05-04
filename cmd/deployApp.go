@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/user"
+	"strings"
 
 	"github.com/babbage88/infra-cli/deployer"
 	"github.com/spf13/cobra"
@@ -92,7 +95,7 @@ var deployFlags DeployFlags
 // init function to define the command flags and bind them with viper
 func init() {
 	curUser, _ := getCurrentUserName()
-
+	var envFile string
 	rootCmd.AddCommand(deployCmd)
 
 	// Define flags here
@@ -102,6 +105,7 @@ func init() {
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
 	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "smbplusplus", "Name of the compiled binary that will be output")
 	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/smbplusplus", "Directory to install the binary")
+	deployCmd.Flags().StringVar(&envFile, "env-file", "", ".envfile to read in and set in systemd service unit file")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "smbplusplus", "Source Binary to install to build tazxzhe application")
@@ -113,6 +117,13 @@ func init() {
 
 	// Bind the flags with viper
 	viper.BindPFlags(deployCmd.Flags())
+	if envFile != "" {
+		envs, err := readEnvFile(envFile)
+		if err != nil {
+			slog.Error("Error parsing env-file", slog.String("error", err.Error()))
+			deployFlags.EnvVars = envs
+		}
+	}
 }
 
 func formatEnvVars(envVars map[string]string) string {
@@ -123,4 +134,39 @@ func formatEnvVars(envVars map[string]string) string {
 		formattedVars = append(formattedVars, envLine)
 	}
 	return fmt.Sprintf("%s", formattedVars)
+}
+
+func readEnvFile(filePath string) (map[string]string, error) {
+	envMap := make(map[string]string)
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		envMap[key] = value
+	}
+
+	if scanner.Err() != nil {
+		return nil, scanner.Err()
+	}
+
+	return envMap, nil
 }
