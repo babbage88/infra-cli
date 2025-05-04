@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/babbage88/infra-cli/deployer"
 	"github.com/spf13/cobra"
@@ -25,10 +26,12 @@ var databaseInstallPgCmd = &cobra.Command{
 			return err
 		}
 
-		out, err := pgInstaller.SshClient.Run("ls")
+		out, err := pgInstaller.SshClient.Run("cat /etc/os-release")
 		if err != nil {
 			return err
 		}
+		pgInstaller.ParseOsReleaseContent(out)
+		slog.Info("", slog.String("Name", pgInstaller.OsInfo["NAME"]))
 		fmt.Println(string(out))
 		return nil
 	},
