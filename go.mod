@@ -17,8 +17,6 @@ require (
 )
 
 require (
-	github.com/babbage88/sysinfo v0.0.0-20250504195958-14550105a651 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 )
