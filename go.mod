@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/babbage88/goph/v2 v2.0.1
+	github.com/babbage88/tint v0.0.1
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/go-git/go-git/v5 v5.14.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	github.com/babbage88/tint v0.0.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 )
