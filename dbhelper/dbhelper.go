@@ -1,10 +1,14 @@
 package dbhelper
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+
+	_ "github.com/lib/pq"
 )
 
 // Example Go Handler (with a simple HTTP route)
@@ -38,8 +42,52 @@ func generateDbUserScript(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"script": sqlScript})
 }
 
-func generateSqlScript(superUsername, superUserPassword, appUsername, appPass, appDbName string) string {
+func generateSqlScript(dbHostname, superUsername, superUserPassword, appUsername, appPass, appDbName string, dbPort int16) string {
 	var sqlScript strings.Builder
+	var pgDb string = "postgres"
+	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", dbHostname, dbPort, superUsername, superUserPassword, pgDb)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		slog.Error("error connecting to database", slog.String("error", err.Error()))
+	}
+	defer db.Close()
 
+	var exists bool
+	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", appDbName).Scan(&exists)
+	if err != nil {
+		slog.Error("error checking if db exists to database", slog.String("error", err.Error()))
+	}
+
+	if exists {
+		fmt.Printf("Database %s already exists. Skipping creation.\n", appDbName)
+	} else {
+
+		crtDbQry := fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, appDbName)
+		sqlScript.WriteString(crtDbQry)
+		_, err = db.Exec(crtDbQry)
+		if err != nil {
+			slog.Error("error checking if db exists to database", slog.String("error", err.Error()))
+		}
+		fmt.Printf("Database %s created.\n", appDbName)
+	}
+
+	// Create user if it doesn't exist
+	var userExists bool
+	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", appUsername).Scan(&userExists)
+	if err != nil {
+		slog.Error("Failed while checking if user exists", slog.String("error", err.Error()))
+	}
+
+	if userExists {
+		fmt.Printf("User %s already exists. Altering password.\n", appUsername)
+		altrUsrQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, appUsername, appPass)
+		_, err = db.Exec(altrUsrQry)
+		if err != nil {
+			slog.Error("Failed to alter appUsername password", slog.String("error", err.Error()))
+		}
+	} else {
+		crtUsrQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, appUsername)
+		sqlScript.WriteString(crtUsrQry)
+	}
 	return sqlScript.String()
 }
