@@ -1,4 +1,5 @@
 **default.yaml
+dbhelper/**.yaml
 lxc_*yaml
 
 scratch.MD

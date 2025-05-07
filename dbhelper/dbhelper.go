@@ -68,7 +68,7 @@ func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername
 	var sqlScript strings.Builder
 	var appSqlScript strings.Builder
 	var shellScript strings.Builder
-	var pgDb = "postgres"
+	pgDb := "postgres"
 
 	pgSqlScriptName := "pg_create_db.sql"
 	appDbScriptName := "pg_app_db.sql"
@@ -94,7 +94,8 @@ func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername
 	}
 
 	if !exists {
-		sqlScript.WriteString("#### Creating new database ####\n")
+		sqlScript.WriteString("/* #### Creating new database #### */")
+		sqlScript.WriteByte('\n')
 		sqlScript.WriteString(fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, appDbName))
 		sqlScript.WriteByte('\n')
 	}
