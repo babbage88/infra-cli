@@ -1,34 +1,46 @@
-# Step 1: Define the base image as an argument with a default value
-ARG base_image=ubuntu:24.04
+# syntax=docker/dockerfile:1
+ARG GO_VERSION=1.24.3
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
+WORKDIR /src
 
-# Step 2: Use the official Golang image for building the application
-FROM ${base_image}
+# golang dependencies
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+  --mount=type=bind,source=go.sum,target=go.sum \
+  --mount=type=bind,source=go.mod,target=go.mod \
+  go mod download -x
 
-# Step 3: Install necessary dependencies for the build
-RUN apt-get update && apt-get install -y \
-  sudo \
-  git wget tar curl make jq yq \
-  && rm -rf /var/lib/apt/lists/*
+# Target go version
+ARG TARGETARCH
 
-# Step 4: Set the working directory and copy the necessary Go files
+# Build the application, using cache mount.
+
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+  --mount=type=bind,target=. \
+  CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /bin/server ./
+
+# Final stage copy bin and install pre-requisites
+FROM alpine:latest AS final
+LABEL org.opencontainers.image.source="https://github.com/babbage88/infractl"
+
 WORKDIR /app
+RUN touch default.yaml
+ARG UID=10001
+RUN adduser \
+  --disabled-password \
+  --gecos "" \
+  --home "/nonexistent" \
+  --shell "/sbin/nologin" \
+  --no-create-home \
+  --uid "${UID}" \
+  appuser
 
-COPY setup.sh setup.sh
+RUN chown -R appuser:appuser /app/
+USER appuser
 
-ENV PATH=/usr/local/go/bin:$PATH
-RUN chmod +x /app/setup.sh && /app/setup.sh
+# Copy the executable from the "build" stage.
+COPY --from=build /bin/server /app/
 
-#COPY ./internal/remote/deployment/createuser ./internal/remote/deployment/
-COPY ./go.mod ./go.sum ./
+# Expose the port that the application listens on.
+EXPOSE 8181
 
-# Step 5: deploymentwnload Go modules
-RUN go mod tidy
-ENV HOME=/root
-ENV GOPATH=$HOME/go
-COPY . /app
-RUN touch default.yaml && make install
-
-# Step 6: Build the Go application
-#RUN go build -v -o ./remote_utils/bin/user-utils ./internal/remote/deployment/createuser
-#RUN make build
-
+ENTRYPOINT [ "/app/server", "database", "db-helper-api", "--start-api=true" ]

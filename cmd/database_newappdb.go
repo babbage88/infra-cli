@@ -3,7 +3,8 @@ package cmd
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,7 +30,8 @@ var newAppDBCmd = &cobra.Command{
 		connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", pgHostname, pgPort, pgUser, pgPassword, pgDb)
 		db, err := sql.Open("postgres", connStr)
 		if err != nil {
-			log.Fatalf("Failed to connect to PostgreSQL: %v", err)
+			slog.Error("Failed to connect to PostgreSQL", "error", err.Error())
+			os.Exit(1)
 		}
 		defer db.Close()
 
@@ -37,17 +39,18 @@ var newAppDBCmd = &cobra.Command{
 			var exists bool
 			err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&exists)
 			if err != nil {
-				log.Fatalf("Failed to check if database exists: %v", err)
+				slog.Error("Failed to check if database exists", "error", err.Error())
+				os.Exit(1)
 			}
 
 			if exists {
-				fmt.Printf("Database %s already exists. Skipping creation.\n", dbname)
+				slog.Error("Database %s already exists. Skipping creation", slog.String("DbName", dbname), slog.String("error", err.Error()))
 			} else {
 				_, err = db.Exec(fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, dbname))
 				if err != nil {
-					log.Fatalf("Failed to create database: %v", err)
+					slog.Error("Failed to create database", "error", err.Error())
 				}
-				fmt.Printf("Database %s created.\n", dbname)
+				slog.Info("Database created", "DbName", dbname)
 			}
 		}
 
@@ -55,40 +58,46 @@ var newAppDBCmd = &cobra.Command{
 		var userExists bool
 		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", username).Scan(&userExists)
 		if err != nil {
-			log.Fatalf("Failed to check if user exists: %v", err)
+			slog.Error("Failed to check if user exists", "error", err.Error())
+			os.Exit(1)
 		}
 
 		if userExists {
-			fmt.Printf("User %s already exists. Altering password.\n", username)
+			slog.Info("User already exists. Altering password", "username", username)
 			_, err = db.Exec(fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password))
 			if err != nil {
-				log.Fatalf("Failed to alter user password: %v", err)
+				slog.Error("Failed to alter user password", "error", err.Error())
+				os.Exit(2)
 			}
 		} else {
 			crtQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, username)
 			altrPwQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
 			_, err = db.Exec(crtQry)
 			if err != nil {
-				log.Fatalf("Failed to create user: %v", err)
+				slog.Error("Failed to create user", "error", err.Error())
+				os.Exit(1)
 			}
 			_, err = db.Exec(altrPwQry)
 			if err != nil {
-				log.Fatalf("Failed to alter user: %v", err)
+				slog.Error("Failed to alter user", "error", err.Error())
+				os.Exit(1)
 			}
-			log.Printf("User %s created.\n", username)
+			slog.Info("User created", "username", username)
 		}
 
 		// Grant CONNECT on database (idempotent)
 		_, err = db.Exec(fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username))
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
-			log.Fatalf("Failed to grant CONNECT: %v", err)
+			slog.Error("Failed to grant CONNECT", "error", err.Error())
+			os.Exit(1)
 		}
 
 		// Connect to target database
 		appDBConn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", pgHostname, pgPort, pgUser, pgPassword, dbname)
 		appdb, err := sql.Open("postgres", appDBConn)
 		if err != nil {
-			log.Fatalf("Failed to connect to target database: %v", err)
+			slog.Error("Failed to connect to target database", "error", err.Error())
+			os.Exit(1)
 		}
 		defer appdb.Close()
 
@@ -103,7 +112,6 @@ var newAppDBCmd = &cobra.Command{
 			// Grant access to all current sequences
 			//fmt.Sprintf(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %s;`, username),
 			//fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
-
 			// Alter default privileges for future tables and sequences
 			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;`, username),
 			//fmt.Sprintf(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %s;`, username),
@@ -117,20 +125,22 @@ var newAppDBCmd = &cobra.Command{
 		}
 
 		for _, stmt := range sqlStatements {
-			log.Printf("Executing SQL: %s\n", stmt)
+			slog.Info("Executing SQL", "Query", stmt)
 			if _, err := appdb.Exec(stmt); err != nil {
-				log.Fatalf("Failed executing statement: %s\nError: %v", stmt, err)
+				slog.Error("Failed executing statement", slog.String("Query", stmt), slog.String("error", err.Error()))
+				os.Exit(1)
 			}
 		}
 
 		for _, stmt := range pgStatements {
-			log.Printf("Executing SQL: %s\n", stmt)
+			slog.Info("Executing SQL", "Query", stmt)
 			if _, err := db.Exec(stmt); err != nil {
-				log.Fatalf("Failed executing statement: %s\nError: %v", stmt, err)
+				slog.Error("Failed executing statement", slog.String("Query", stmt), slog.String("error", err.Error()))
+				os.Exit(1)
 			}
 		}
 
-		fmt.Printf("Privileges granted to %s on %s.\n", username, dbname)
+		slog.Info("Privileges granted to app user on database", "Username", username, "DbName", dbname)
 	},
 }
 
