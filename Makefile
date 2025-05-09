@@ -1,4 +1,5 @@
 GHCR_REPO:=ghcr.io/babbage88/infractl:
+DBHELPERAPI_GHCR_REPO:=ghcr.io/babbage88/dbhelperapi:
 BIN_NAME:=infractl
 DEFAULT_CFG_FILE:=default.yaml
 DEFUALT_CONFIG_DIR:=~/.config/infractl
@@ -95,3 +96,6 @@ buildandpush: check-builder
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(GHCR_REPO)$(tag) . --push
 
 
+buildandpush-dbhelper: check-builder
+	docker buildx use goinfaclibuilder
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(DBHELPERAPI_GHCR_REPO)$(tag) . --push

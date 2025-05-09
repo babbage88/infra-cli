@@ -142,6 +142,17 @@ func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername
 	}
 }
 
+type PgDevDbExecStatement struct {
+	QryCmd []string `json:"qryCmds"`
+	DbName string   `json:"dbName"`
+	DbUser string   `json:"dbUser"`
+}
+
+type PgCreateDevDbAndUserResponse struct {
+	StatemensExecuted []PgDevDbExecStatement `json:"pdDevDbDeploymentStatements"`
+	Errors            []error                `json:"deploymentErrors"`
+}
+
 // Generates two postgres sql scripts, one to run while connected to the postgres db and one connected to the new appDb after it has been created.
 func generateSqlScriptAndExecute(dbHostname, superUsername, superUserPassword, appUsername, appPass, appDbName string, dbPort int16) string {
 	var sqlScript strings.Builder
