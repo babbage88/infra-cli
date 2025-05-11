@@ -1,0 +1,85 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: db-helper-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - dbbob.prod.trahan.dev
+      secretName: trahan-dev-cert
+  rules:
+    - host: "dbbob.prod.trahan.dev"
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: db-helper-ui-csvc
+                port:
+                  number: 8080
+          - pathType: Prefix
+            path: "/api/"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+          - pathType: ImplementationSpecific
+            path: "/metrics"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+    - host: "dbbob.trahan.dev"
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: db-helper-ui-csvc
+                port:
+                  number: 8080
+          - pathType: Prefix
+            path: "/api/"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+          - pathType: ImplementationSpecific
+            path: "/metrics"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+    - host: "dbbob.trahan.dev"
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: db-helper-ui-csvc
+                port:
+                  number: 8080
+          - pathType: Prefix
+            path: "/api/"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+          - pathType: ImplementationSpecific
+            path: "/metrics"
+            backend:
+              service:
+                name: db-helper-api-csvc
+                port:
+                  number: 8181
+
