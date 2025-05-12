@@ -38,11 +38,11 @@ func startApiServer(listenAddr *string) error {
 	//mux.Handle("/api/download-pg-scripts", http.HandlerFunc(dbhelper.DownloadDbUserScriptsHandler()))
 	mux.HandleFunc("/api/download-pg-scripts", dbhelper.DownloadDbUserScriptsHandler())
 	mux.Handle("/metrics", promhttp.Handler())
-	return http.ListenAndServe(*listenAddr, corsMiddleware(mux))
+	return http.ListenAndServe(*listenAddr, handleCORSOptions(mux))
 
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func handleCORSOptions(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
