@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/babbage88/infra-cli/dbhelper"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -34,11 +35,11 @@ func init() {
 func startApiServer(listenAddr *string) error {
 	mux := http.NewServeMux()
 	slog.Info("Starting Db Helper UI API Server", slog.String("ListedAddr", *listenAddr))
-	mux.Handle("/api/generate-pg-setup-scripts", http.HandlerFunc(dbhelper.GenerateDbUserScriptsHandler()))
+	mux.Handle("/generate-pg-setup-scripts", http.HandlerFunc(dbhelper.GenerateDbUserScriptsHandler()))
 	//mux.Handle("/api/download-pg-scripts", http.HandlerFunc(dbhelper.DownloadDbUserScriptsHandler()))
-	mux.HandleFunc("/api/download-pg-scripts", dbhelper.DownloadDbUserScriptsHandler())
+	mux.HandleFunc("/download-pg-scripts", dbhelper.DownloadDbUserScriptsHandler())
 	mux.Handle("/metrics", promhttp.Handler())
-	return http.ListenAndServe(*listenAddr, handleCORSOptions(mux))
+	return http.ListenAndServe(*listenAddr, requestLoggingMiddleware(handleCORSOptions(mux)))
 
 }
 
@@ -54,5 +55,44 @@ func handleCORSOptions(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// requestLoggingMiddleware logs request paths and warns on 404s
+func requestLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(recorder, r)
+
+		duration := time.Since(start)
+
+		if recorder.status == http.StatusNotFound {
+			slog.Warn("no route matched",
+				slog.String("path", r.URL.Path),
+				slog.String("method", r.Method),
+				slog.Int("status", recorder.status),
+				slog.Any("duration", duration),
+			)
+		} else {
+			slog.Info("handled request",
+				slog.String("path", r.URL.Path),
+				slog.String("method", r.Method),
+				slog.Int("status", recorder.status),
+				slog.Any("duration", duration),
+			)
+		}
 	})
 }
