@@ -12,6 +12,7 @@ require (
 	github.com/pkg/sftp v1.13.9
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
+	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6
 	golang.org/x/term v0.32.0
 	gopkg.in/yaml.v3 v3.0.1
 )
