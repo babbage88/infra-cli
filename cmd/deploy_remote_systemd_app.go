@@ -38,6 +38,18 @@ var deployCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Starting Cobra deploy command", "AppName", deployFlags.AppName)
+
+		// Read .env file if specified and no env-vars provided
+		if deployFlags.EnvFile != "" && len(deployFlags.EnvVars) == 0 {
+			envs, err := readEnvFile(deployFlags.EnvFile)
+			if err != nil {
+				slog.Error("Error parsing env-file", slog.String("error", err.Error()))
+				return fmt.Errorf("failed to read env file: %w", err)
+			}
+			deployFlags.EnvVars = envs
+			slog.Info("Loaded environment variables from file", slog.String("env-file", deployFlags.EnvFile), slog.Int("count", len(envs)))
+		}
+
 		enVars := deployer.WithEnvars(deployFlags.EnvVars)
 		serviceAccount := make(map[int64]string)
 		serviceAccount[deployFlags.ServiceUid] = deployFlags.ServiceUser
@@ -77,6 +89,7 @@ type DeployFlags struct {
 	AppName           string            `mapstructure:"app-name"`
 	BinaryDir         string            `mapstructure:"binary-dir"`
 	EnvVars           map[string]string `mapstructure:"env-vars"`
+	EnvFile           string            `mapstructure:"env-file"`
 	ServiceUser       string            `mapstructure:"service-user"`
 	ServiceUid        int64             `mapstructure:"service-uid"`
 	DestinationBinary string            `mapstructure:"dst-bin"`
@@ -95,7 +108,6 @@ var deployFlags DeployFlags
 // init function to define the command flags and bind them with viper
 func init() {
 	curUser, _ := getCurrentUserName()
-	var envFile string
 	rootCmd.AddCommand(deployCmd)
 
 	// Define flags here
@@ -105,7 +117,7 @@ func init() {
 	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
 	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "smbplusplus", "Name of the compiled binary that will be output")
 	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/smbplusplus", "Directory to install the binary")
-	deployCmd.Flags().StringVar(&envFile, "env-file", "", ".envfile to read in and set in systemd service unit file")
+	deployCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", ".envfile to read in and set in systemd service unit file")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
 	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "smbplusplus", "Source Binary to install to build tazxzhe application")
@@ -117,13 +129,6 @@ func init() {
 
 	// Bind the flags with viper
 	viper.BindPFlags(deployCmd.Flags())
-	if envFile != "" {
-		envs, err := readEnvFile(envFile)
-		if err != nil {
-			slog.Error("Error parsing env-file", slog.String("error", err.Error()))
-			deployFlags.EnvVars = envs
-		}
-	}
 }
 
 func formatEnvVars(envVars map[string]string) string {
