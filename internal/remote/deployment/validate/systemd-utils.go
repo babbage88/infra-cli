@@ -27,7 +27,7 @@ WorkingDirectory=%s
 User=%s
 Group=%s
 Restart=on-failure
-%s
+EnvironmentFile=%s
 
 [Install]
 WantedBy=multi-user.target

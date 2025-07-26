@@ -50,6 +50,13 @@ var deployCmd = &cobra.Command{
 			slog.Info("Loaded environment variables from file", slog.String("env-file", deployFlags.EnvFile), slog.Int("count", len(envs)))
 		}
 
+		// Debug: Log the environment variables that will be passed to the deployer
+		if len(deployFlags.EnvVars) > 0 {
+			slog.Info("Environment variables to be set in systemd service", slog.Any("env-vars", deployFlags.EnvVars))
+		} else {
+			slog.Info("No environment variables to be set in systemd service")
+		}
+
 		enVars := deployer.WithEnvars(deployFlags.EnvVars)
 		serviceAccount := make(map[int64]string)
 		serviceAccount[deployFlags.ServiceUid] = deployFlags.ServiceUser
