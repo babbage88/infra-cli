@@ -128,7 +128,7 @@ func newClient(base, username, password string, method AuthMethod, ignoreTlsErro
 	// Custom transport to optionally skip TLS verification
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: ignoreTlsError, // 🚀 this is what makes --insecure work
+			InsecureSkipVerify: ignoreTlsError,
 		},
 	}
 

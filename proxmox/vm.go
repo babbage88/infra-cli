@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -109,10 +110,13 @@ func (cfg *VMConfigTyped) PrintJSON() error {
 }
 
 // Helper to safely convert numeric API values to json.Number
-func toJSONNumber(v interface{}) json.Number {
+func toJSONNumber(v any) json.Number {
 	switch t := v.(type) {
 	case json.Number:
 		return t
+	case int:
+		intStr := strconv.Itoa(t)
+		return json.Number(intStr)
 	case float64:
 		return json.Number(fmt.Sprintf("%.0f", t))
 	case string:
