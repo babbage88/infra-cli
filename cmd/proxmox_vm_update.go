@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -32,11 +34,39 @@ var proxmoxVmSetSubCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Command for updating a Proxmox VM's configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		localViper := viper.New()
+		var (
+			pveUser   string
+			pveSecret string
+		)
+		cfgFile, _ := cmd.Flags().GetString("config-file")
+		if cfgFile != "" {
+			err := loadProxmoxConfigFile(cfgFile, localViper)
+
+			if err != nil {
+				slog.Error("Failed to load config", "error", err.Error())
+				os.Exit((1))
+			}
+		}
+		fmt.Println("DEBUG: Viper config loaded:", localViper.AllSettings())
+
+		// Step 2: Bind flags AFTER config is loaded
+		bindLocalFlags(cmd, localViper)
+
 		ctx := context.Background()
+
+		if proxmoxApiAuthBoolVar {
+			pveUser = localViper.GetString("proxmox_api_token")
+			pveSecret = localViper.GetString("proxmox_api_secret")
+
+		} else {
+			pveUser = localViper.GetString("username")
+			pveSecret = localViper.GetString("password")
+		}
 
 		// If API URL not provided, construct it correctly
 		if proxmoxApiUrl == "" {
-			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", proxPveNodeFlagVar, proxPortFlagVar)
+			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", localViper.GetString("pve_node"), localViper.GetInt("pve_port"))
 		}
 		slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
 
@@ -44,22 +74,13 @@ var proxmoxVmSetSubCmd = &cobra.Command{
 			err    error
 			client *proxmox.Client
 		)
-
-		if proxmoxApiAuthBoolVar {
-			client, err = proxmox.NewClientToken(
-				proxmoxApiUrl,
-				proxmoxAuthToken,       // e.g. "root@pam!mytoken"
-				proxmoxAuthTokenSecret, // secret value
-				proxmoxIgnoreTLSErrorBoolVar,
-			)
-		} else {
-			client, err = proxmox.NewClientPassword(
-				proxmoxApiUrl,
-				proxoxUserFlagVar,
-				proxmoxPasswordFlagVar,
-				proxmoxIgnoreTLSErrorBoolVar,
-			)
-		}
+		client, err = proxmox.NewClient(
+			proxmoxApiUrl,
+			pveUser,
+			pveSecret,
+			proxmoxIgnoreTLSErrorBoolVar,
+			proxmoxApiAuthBoolVar,
+		)
 
 		if err != nil {
 			slog.Error("failed to create proxmox client", slog.String("url", proxmoxApiUrl), "error", err.Error())
@@ -79,6 +100,7 @@ var proxmoxVmSetSubCmd = &cobra.Command{
 
 func init() {
 	proxmoxVmSubCmd.AddCommand(proxmoxVmSetSubCmd)
+	proxmoxVmSetSubCmd.Flags().StringVar(&configFilePath, "config-file", "", "Path to YAML config file for PVE auth and vm")
 
 	// Auth
 	proxmoxVmSetSubCmd.Flags().StringVarP(&proxmoxApiUrl, "url", "u", "", "Username or Auth token name")
@@ -87,8 +109,8 @@ func init() {
 	proxmoxVmSetSubCmd.Flags().StringVar(&rootCAPathFlagVar, "rootca-path", "", "RootCA path for TLS validation")
 	proxmoxVmSetSubCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", false, "Password for user or Auth token")
 	proxmoxVmSetSubCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "skip-tls", true, "Skip TLS/SSL certificate validation")
-	proxmoxVmSetSubCmd.Flags().StringVar(&proxmoxAuthToken, "token", "", "Proxmox API token ID")
-	proxmoxVmSetSubCmd.Flags().StringVar(&proxmoxAuthTokenSecret, "secret", "", "Proxmox API token secret")
+	proxmoxVmSetSubCmd.Flags().StringVar(&proxmoxAuthToken, "proxmox-api-token", "", "Proxmox API token ID")
+	proxmoxVmSetSubCmd.Flags().StringVar(&proxmoxAuthTokenSecret, "proxmox-api-secret", "", "Proxmox API token secret")
 
 	// VM Set flags
 	proxmoxVmSetSubCmd.Flags().StringVar(&proxPveNodeFlagVar, "pve-node", "proxmox3", "Proxmox node name")

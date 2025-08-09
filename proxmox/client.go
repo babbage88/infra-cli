@@ -56,6 +56,15 @@ type TLSConfig struct {
 }
 
 // NewClientPassword creates a client using username/password auth.
+func NewClient(base, username, password string, tlsCfg bool, useToken bool) (*Client, error) {
+	authMethod := AuthPassword
+	if useToken {
+		authMethod = AuthToken
+	}
+	return newClient(base, username, password, authMethod, true)
+}
+
+// NewClientPassword creates a client using username/password auth.
 func NewClientPassword(base, username, password string, tlsCfg bool) (*Client, error) {
 	return newClient(base, username, password, AuthPassword, true)
 }
@@ -203,7 +212,6 @@ func (c *Client) Login(ctx context.Context) error {
 	return nil
 }
 
-// do executes a request and decodes JSON into out (if provided).
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, headers map[string]string, csrf bool, out interface{}) error {
 	full := *c.baseURL
 	full.Path = strings.TrimRight(c.baseURL.Path, "/") + path
@@ -244,20 +252,34 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, he
 	}
 	defer resp.Body.Close()
 
-	var wrapper struct {
-		Data   json.RawMessage        `json:"data"`
-		Errors map[string]interface{} `json:"errors"`
+	// Read entire body first
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response body: %w", err)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
-		return fmt.Errorf("invalid JSON response: %w", err)
-	}
+
 	if resp.StatusCode >= 400 {
+		// Try to parse Proxmox JSON error format, but ignore parsing errors
+		var wrapper struct {
+			Errors map[string]interface{} `json:"errors"`
+		}
+		_ = json.Unmarshal(bodyBytes, &wrapper)
 		return &APIError{Status: resp.StatusCode, Errors: wrapper.Errors}
 	}
-	if out != nil && len(wrapper.Data) > 0 {
-		if err := json.Unmarshal(wrapper.Data, out); err != nil {
-			return fmt.Errorf("decoding data: %w", err)
+
+	if out != nil && len(bodyBytes) > 0 {
+		var wrapper struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(bodyBytes, &wrapper); err != nil {
+			return fmt.Errorf("invalid JSON response: %w", err)
+		}
+		if len(wrapper.Data) > 0 {
+			if err := json.Unmarshal(wrapper.Data, out); err != nil {
+				return fmt.Errorf("decoding data: %w", err)
+			}
 		}
 	}
+
 	return nil
 }
