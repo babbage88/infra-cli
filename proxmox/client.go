@@ -2,12 +2,15 @@ package proxmox
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -46,18 +49,24 @@ type Client struct {
 	loginExpiry time.Duration
 }
 
+// TLSConfig holds optional TLS settings for the client.
+type TLSConfig struct {
+	IgnoreCertErrors bool   // true to skip verification
+	CACertPath       string // optional path to CA cert to trust
+}
+
 // NewClientPassword creates a client using username/password auth.
-func NewClientPassword(base, username, password string) (*Client, error) {
-	return newClient(base, username, password, AuthPassword)
+func NewClientPassword(base, username, password string, tlsCfg bool) (*Client, error) {
+	return newClient(base, username, password, AuthPassword, true)
 }
 
 // NewClientToken creates a client using API token authentication.
-func NewClientToken(base, tokenID, secret string) (*Client, error) {
+func NewClientToken(base, tokenID, secret string, tlsCfg bool) (*Client, error) {
 	// tokenID format: user@realm!tokenname
-	return newClient(base, tokenID, secret, AuthToken)
+	return newClient(base, tokenID, secret, AuthToken, true)
 }
 
-func newClient(base, username, password string, method AuthMethod) (*Client, error) {
+func newClientold(base, username, password string, method AuthMethod, tlsCfg TLSConfig) (*Client, error) {
 	if base == "" {
 		return nil, errors.New("base URL required")
 	}
@@ -65,12 +74,64 @@ func newClient(base, username, password string, method AuthMethod) (*Client, err
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
+
+	// Setup TLS
+	tlsConf := &tls.Config{}
+	if tlsCfg.IgnoreCertErrors {
+		tlsConf.InsecureSkipVerify = true // skip verification (lab/dev use only)
+	}
+	if tlsCfg.CACertPath != "" {
+		caCert, err := os.ReadFile(tlsCfg.CACertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, errors.New("failed to parse CA certificate")
+		}
+		tlsConf.RootCAs = caCertPool
+	}
+
+	httpClient := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: tlsConf},
+	}
+
 	return &Client{
 		baseURL:     u,
 		authMethod:  method,
 		username:    username,
 		password:    password,
-		httpClient:  &http.Client{Timeout: 60 * time.Second},
+		httpClient:  httpClient,
+		loginExpiry: 1 * time.Hour,
+	}, nil
+}
+
+func newClient(base, username, password string, method AuthMethod, ignoreTlsError bool) (*Client, error) {
+	if base == "" {
+		return nil, errors.New("base URL required")
+	}
+	u, err := url.Parse(strings.TrimRight(base, "/"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	// Custom transport to optionally skip TLS verification
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: ignoreTlsError, // 🚀 this is what makes --insecure work
+		},
+	}
+
+	return &Client{
+		baseURL:    u,
+		authMethod: method,
+		username:   username,
+		password:   password,
+		httpClient: &http.Client{
+			Timeout:   60 * time.Second,
+			Transport: tr,
+		},
 		loginExpiry: 1 * time.Hour,
 	}, nil
 }
