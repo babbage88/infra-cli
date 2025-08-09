@@ -8,6 +8,28 @@ import (
 	"strings"
 )
 
+// CreateVM creates a new VM on a given Proxmox node using VMConfigTyped.
+// vmid must be a unique unused VM ID.
+func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *VMConfigTyped) error {
+	if cfg == nil {
+		return fmt.Errorf("VMConfigTyped cannot be nil")
+	}
+	if vmid <= 0 {
+		return fmt.Errorf("invalid VMID: %d", vmid)
+	}
+
+	params := cfg.ToParams()
+	params.Set("vmid", fmt.Sprintf("%d", vmid))
+
+	path := fmt.Sprintf("/api2/json/nodes/%s/qemu", url.PathEscape(node))
+	headers := map[string]string{
+		"Content-Type": "application/x-www-form-urlencoded",
+	}
+
+	// The Proxmox API expects POST for creating a VM.
+	return c.do(ctx, "POST", path, strings.NewReader(params.Encode()), headers, true, nil)
+}
+
 // VMConfigTyped represents common VM configuration fields.
 type VMConfigTyped struct {
 	Name        string      `json:"name,omitempty"`
