@@ -13,9 +13,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	updateVmIDs []int
-)
+var updateVmIDs []int
 
 // buildVMConfigFromCmd builds a VMConfigTyped containing only flags that were explicitly set.
 func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.VMConfigTyped, error) {
@@ -57,8 +55,9 @@ func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.VMConfigTyped, error) {
 }
 
 var proxmoxVmUpdateListCmd = &cobra.Command{
-	Use:   "update-list",
-	Short: "Update configuration for multiple Proxmox VMs",
+	Use:     "set",
+	Aliases: []string{"update", "update-list"},
+	Short:   "Update configuration for multiple Proxmox VMs",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		localViper := viper.New()
 
