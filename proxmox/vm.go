@@ -77,6 +77,15 @@ func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*VMCon
 	return cfg, nil
 }
 
+func (cfg *VMConfigTyped) PrintJSON() error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal VMConfigTyped: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
 // Helper to safely convert numeric API values to json.Number
 func toJSONNumber(v interface{}) json.Number {
 	switch t := v.(type) {

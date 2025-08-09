@@ -94,6 +94,7 @@ var proxmoxVmSetSubCmd = &cobra.Command{
 		}
 
 		fmt.Printf("VM Info: %+v\n", vmInfo)
+		vmInfo.PrintJSON()
 		return nil
 	},
 }
