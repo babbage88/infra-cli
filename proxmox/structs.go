@@ -7,12 +7,20 @@ import (
 	"os"
 )
 
-type ProxmoxResourceType int
-
-const (
-	Lxc ProxmoxResourceType = iota
-	QemuVm
-)
+// VMInfo represents basic information about a VM from Proxmox.
+type VMInfo struct {
+	VMID     int     `json:"vmid"`
+	Name     string  `json:"name"`
+	Status   string  `json:"status"`
+	CPU      float64 `json:"cpu,omitempty"`
+	MaxMem   int64   `json:"maxmem,omitempty"`
+	Mem      int64   `json:"mem,omitempty"`
+	MaxDisk  int64   `json:"maxdisk,omitempty"`
+	Disk     int64   `json:"disk,omitempty"`
+	Uptime   int64   `json:"uptime,omitempty"`
+	Node     string  `json:"node,omitempty"`
+	Template int     `json:"template,omitempty"`
+}
 
 func ParseQemuVmConfig(raw map[string]any) *VMConfigTyped {
 	cfg := &VMConfigTyped{Raw: make(map[string]string)}
@@ -39,7 +47,6 @@ func ParseQemuVmConfig(raw map[string]any) *VMConfigTyped {
 type VMConfigTyped struct {
 	Name        string      `json:"name,omitempty"`
 	Vmid        json.Number `json:"vmid,omitempty"`
-	Type        string
 	MemoryMB    json.Number `json:"memory,omitempty"`
 	Sockets     json.Number `json:"sockets,omitempty"`
 	Cores       json.Number `json:"cores,omitempty"`

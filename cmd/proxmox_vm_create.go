@@ -55,7 +55,7 @@ var proxmoxVmCreateCmd = &cobra.Command{
 			return fmt.Errorf("failed to create proxmox client: %w", err)
 		}
 
-		vmCfgCmd := ProxmoxVmCreateCommand{
+		vmCfgCmd := ProxmoxVmCommandFlags{
 			Name:        proxVmNameFlagVar,
 			MemoryMB:    proxMemowryFlagVar,
 			Sockets:     proxVmSocketFlagVar,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -136,4 +138,42 @@ func (c *Client) SetMemory(ctx context.Context, node string, vmid int, memMB int
 func (c *Client) SetCores(ctx context.Context, node string, vmid int, cores int) error {
 	cfg := &VMConfigTyped{Cores: json.Number(fmt.Sprintf("%d", cores))}
 	return c.UpdateVMConfig(ctx, node, vmid, cfg)
+}
+
+func (c *Client) ListVMs(ctx context.Context, node string) ([]VMInfo, error) {
+	url := fmt.Sprintf("%s/api2/json/nodes/%s/qemu", c.baseURL, node)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	// Attach auth
+	if c.authMethod == AuthToken {
+		req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", c.username, c.password))
+	} else {
+		// If using ticket/session-based auth
+		req.Header.Set("Cookie", fmt.Sprintf("PVEAuthCookie=%s", c.authTicket))
+		req.Header.Set("CSRFPreventionToken", c.csrfToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []VMInfo `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding data: %w", err)
+	}
+
+	return result.Data, nil
 }

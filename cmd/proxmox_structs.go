@@ -7,7 +7,8 @@ import (
 	"github.com/babbage88/infra-cli/proxmox"
 )
 
-type ProxmoxVmCreateCommand struct {
+type ProxmoxVmCommandFlags struct {
+	ApiUrl              string            `json:"proxmox_api_url,omitempty"`
 	Name                string            `json:"name,omitempty"`
 	MemoryMB            int               `json:"memory,omitempty"`
 	Sockets             int               `json:"sockets,omitempty"`
@@ -27,7 +28,7 @@ func intToJsonNumber(i int) json.Number {
 	return json.Number(strInt)
 }
 
-func (v *ProxmoxVmCreateCommand) ParseVMConfigTyped() *proxmox.VMConfigTyped {
+func (v *ProxmoxVmCommandFlags) ParseVMConfigTyped() *proxmox.VMConfigTyped {
 	vmConfig := proxmox.VMConfigTyped{
 		Name:        v.Name,
 		MemoryMB:    intToJsonNumber(v.MemoryMB),
