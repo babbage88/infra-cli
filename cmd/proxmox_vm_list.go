@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -17,46 +16,27 @@ var proxmoxVmListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all VMs on a Proxmox node",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// initialize a local viper.Viper instance
 		localViper := viper.New()
-		var (
-			pveUser   string
-			pveSecret string
-		)
-		cfgFile, _ := cmd.Flags().GetString("config-file")
-		if cfgFile != "" {
-			err := loadProxmoxConfigFile(cfgFile, localViper)
-			if err != nil {
-				slog.Error("Failed to load config", "error", err.Error())
-				os.Exit(1)
+
+		// If the --config-file flage argument has been specified,
+		// parse those values into localViper instance
+		if cmd.Flags().Changed("config-file") {
+			cfgFile, _ := cmd.Flags().GetString("config-file")
+			if cfgFile != "" {
+				err := loadProxmoxConfigFile(cfgFile, localViper)
+				if err != nil {
+					slog.Error("Failed to load config", "error", err.Error())
+					return err
+				}
 			}
 		}
 
+		// bind local cmd.Flags() to localViper, overriding any config-file supplied value
 		bindLocalFlags(cmd, localViper)
 		ctx := context.Background()
 
-		if localViper.GetBool("use-token") {
-			pveUser = localViper.GetString("proxmox_api_token")
-			pveSecret = localViper.GetString("proxmox_api_secret")
-		} else {
-			pveUser = localViper.GetString("username")
-			pveSecret = localViper.GetString("password")
-		}
-
-		if proxmoxApiUrl == "" {
-			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", localViper.GetString("pve_node"), localViper.GetInt("pve_port"))
-		} else {
-			proxmoxApiUrl = localViper.GetString("proxmox_api_url")
-		}
-		slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
-		slog.Info("Proxmox Auth Token", "token", pveUser, "secret", pveSecret)
-
-		client, err := proxmox.NewClient(
-			proxmoxApiUrl,
-			pveUser,
-			pveSecret,
-			proxmoxIgnoreTLSErrorBoolVar,
-			proxmoxApiAuthBoolVar,
-		)
+		client, err := newProxmoxClientFromViperConfig(localViper)
 		if err != nil {
 			slog.Error("failed to create proxmox client", slog.String("url", proxmoxApiUrl), "error", err.Error())
 			return err

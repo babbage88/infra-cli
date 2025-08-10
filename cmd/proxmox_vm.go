@@ -32,6 +32,46 @@ var (
 	rootCAPathFlagVar            string
 )
 
+func newProxmoxClientFromViperConfig(vp *viper.Viper) (*proxmox.Client, error) {
+	var useToken bool
+	var skipTLS bool
+	var pveUserOrToken string
+	var pveSecretOrPassword string
+
+	proxmoxApiUrl = vp.GetString("proxmox_api_url")
+	useToken = vp.GetBool("use_token")
+	skipTLS = vp.GetBool("skip_tls")
+	pveUserOrToken = vp.GetString("proxmox_api_token")
+	pveSecretOrPassword = vp.GetString("proxmox_api_secret")
+	noTokenSupplied := pveUserOrToken == "" && pveSecretOrPassword == ""
+	passwordSupplied := vp.GetString("password") != ""
+
+	// If no API Auth token is supplied and the viper use_token value is false,
+	// username and password will be tried. All this validation is because viper is
+	// not great at detecting the a cmd.Flags.BoolVar() has been set by the user. So
+	// the config-file bools were being incorrectly overidden by the cmd.Flag default.
+
+	if noTokenSupplied && !useToken {
+		if passwordSupplied {
+			pveUserOrToken = vp.GetString("username")
+			pveSecretOrPassword = vp.GetString("password")
+		} else {
+			return nil, fmt.Errorf("No API token or password has been supplied..")
+		}
+	}
+
+	// if no proxmox_api_url has been set, defult to the pve_node and the pve_port (defaults: 8006)
+	if proxmoxApiUrl == "" {
+		proxmoxApiUrl = fmt.Sprintf("https://%s:%d", vp.GetString("pve_node"), vp.GetInt("pve_port"))
+	}
+
+	slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
+	slog.Info("Proxmox Auth Token ID", "token", pveUserOrToken)
+
+	return proxmox.NewClient(proxmoxApiUrl, pveUserOrToken, pveSecretOrPassword, skipTLS, useToken)
+
+}
+
 // buildVMConfigFromCmd builds a VMConfigTyped containing only flags that were explicitly set.
 func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.VMConfigTyped, error) {
 	cfg := &proxmox.VMConfigTyped{Raw: make(map[string]string)}
