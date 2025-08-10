@@ -65,8 +65,10 @@ var proxmoxVmListCmd = &cobra.Command{
 func init() {
 	proxmoxVmSubCmd.AddCommand(proxmoxVmListCmd)
 
-	// Auth flags
+	// Config file flag
 	proxmoxVmListCmd.Flags().StringVar(&configFilePath, "config-file", "", "Path to YAML config file for PVE auth")
+
+	// Auth flags
 	proxmoxVmListCmd.Flags().StringVarP(&proxoxUserFlagVar, "username", "u", "root", "Username or Auth token name")
 	proxmoxVmListCmd.Flags().StringVar(&proxmoxPasswordFlagVar, "password", "", "Password for user or Auth token")
 	proxmoxVmListCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", true, "Use API token authentication")
