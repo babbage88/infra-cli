@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 
 	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
@@ -14,45 +12,6 @@ import (
 )
 
 var updateVmIDs []int
-
-// buildVMConfigFromCmd builds a VMConfigTyped containing only flags that were explicitly set.
-func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.VMConfigTyped, error) {
-	cfg := &proxmox.VMConfigTyped{Raw: make(map[string]string)}
-
-	// string flags
-	if cmd.Flags().Changed("name") {
-		name, _ := cmd.Flags().GetString("name")
-		cfg.Name = name
-	}
-	if cmd.Flags().Changed("description") {
-		desc, _ := cmd.Flags().GetString("description")
-		cfg.Description = desc
-	}
-
-	// int flags -> set json.Number only if changed
-	if cmd.Flags().Changed("memory") {
-		mem, _ := cmd.Flags().GetInt("memory")
-		cfg.MemoryMB = json.Number(strconv.Itoa(mem))
-	}
-	if cmd.Flags().Changed("sockets") {
-		sockets, _ := cmd.Flags().GetInt("sockets")
-		cfg.Sockets = json.Number(strconv.Itoa(sockets))
-	}
-	if cmd.Flags().Changed("cores") {
-		cores, _ := cmd.Flags().GetInt("cores")
-		cfg.Cores = json.Number(strconv.Itoa(cores))
-	}
-
-	// If you have extraRaw flags, check them here and set cfg.Raw[...] as needed.
-	// e.g. if cmd.Flags().Changed("net0") { v, _ := cmd.Flags().GetString("net0"); cfg.Raw["net0"] = v }
-
-	// If Raw map is empty, set to nil to match your desired PrintJSON output
-	if len(cfg.Raw) == 0 {
-		cfg.Raw = nil
-	}
-
-	return cfg, nil
-}
 
 var proxmoxVmUpdateListCmd = &cobra.Command{
 	Use:     "set",

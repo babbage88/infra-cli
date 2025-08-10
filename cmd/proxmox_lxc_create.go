@@ -3,16 +3,16 @@ package cmd
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
-var newLxcRequest proxmox.LxcContainer
-var proxmoxLxcAuth proxmox.Auth
+var (
+	newLxcRequest  proxmox.LxcContainer
+	proxmoxLxcAuth proxmox.Auth
+)
 
 var proxmoxLxcCreateCmd = &cobra.Command{
 	Use:     "create",
@@ -24,7 +24,6 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		cfgFile, _ := cmd.Flags().GetString("config-file")
 		if cfgFile != "" {
 			err := loadProxmoxConfigFile(cfgFile, localViper)
-
 			if err != nil {
 				log.Fatalf("Failed to load config: %v", err)
 			}
@@ -112,44 +111,4 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().Bool("unprivileged", true, "Use unprivileged container")
 	proxmoxLxcCreateCmd.Flags().Bool("start", true, "Start after create")
 	proxmoxLxcCreateCmd.Flags().Bool("console", true, "Attach console")
-
-}
-
-func bindLocalFlags(cmd *cobra.Command, vp *viper.Viper) {
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		key := strings.ReplaceAll(f.Name, "-", "_")
-		_ = vp.BindPFlag(key, f)
-	})
-}
-
-func loadProxmoxConfigFile(path string, vp *viper.Viper) error {
-	if path != "" {
-		vp.SetConfigFile(path)
-		if err := vp.ReadInConfig(); err != nil {
-			return fmt.Errorf("failed to read config file: %w", err)
-		}
-		apiCheck := vp.GetString("api_token")
-		err := validateProxmoxApiToken(apiCheck, vp)
-		if err != nil {
-			return fmt.Errorf("error validatin api token %w", err)
-		}
-		return nil
-	}
-
-	return nil
-}
-
-func validateProxmoxApiToken(apiCheck string, vp *viper.Viper) error {
-	if apiCheck == "" {
-		apiTokenFromRoot := rootViperCfg.GetString("proxmox_api_token")
-		switch len(apiTokenFromRoot) {
-		case 0:
-			return fmt.Errorf("no proxmox api token supplied")
-		default:
-			vp.Set("api_token", apiTokenFromRoot)
-			return nil
-		}
-	} else {
-		return nil
-	}
 }

@@ -13,8 +13,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var proxmoxListCommandFlags ProxmoxVmCommandFlags
-
 var proxmoxVmListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all VMs on a Proxmox node",
@@ -36,7 +34,7 @@ var proxmoxVmListCmd = &cobra.Command{
 		bindLocalFlags(cmd, localViper)
 		ctx := context.Background()
 
-		if proxmoxApiAuthBoolVar {
+		if localViper.GetBool("use-token") {
 			pveUser = localViper.GetString("proxmox_api_token")
 			pveSecret = localViper.GetString("proxmox_api_secret")
 		} else {
@@ -44,19 +42,20 @@ var proxmoxVmListCmd = &cobra.Command{
 			pveSecret = localViper.GetString("password")
 		}
 
-		if proxmoxListCommandFlags.ApiUrl == "" {
+		if proxmoxApiUrl == "" {
 			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", localViper.GetString("pve_node"), localViper.GetInt("pve_port"))
 		} else {
 			proxmoxApiUrl = localViper.GetString("proxmox_api_url")
 		}
 		slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
+		slog.Info("Proxmox Auth Token", "token", pveUser, "secret", pveSecret)
 
 		client, err := proxmox.NewClient(
 			proxmoxApiUrl,
 			pveUser,
 			pveSecret,
-			proxmoxListCommandFlags.SkipTls,
-			proxmoxListCommandFlags.UseToken,
+			proxmoxIgnoreTLSErrorBoolVar,
+			proxmoxApiAuthBoolVar,
 		)
 		if err != nil {
 			slog.Error("failed to create proxmox client", slog.String("url", proxmoxApiUrl), "error", err.Error())
@@ -67,7 +66,7 @@ var proxmoxVmListCmd = &cobra.Command{
 		defer cancel()
 
 		// Fetch VMs
-		vms, err := client.ListVMs(ctx, proxmoxListCommandFlags.PveNode)
+		vms, err := client.ListVMs(ctx, proxPveNodeFlagVar)
 		if err != nil {
 			return fmt.Errorf("error retrieving VM list: %w", err)
 		}
@@ -88,15 +87,15 @@ func init() {
 
 	// Auth flags
 	proxmoxVmListCmd.Flags().StringVar(&configFilePath, "config-file", "", "Path to YAML config file for PVE auth")
-	proxmoxVmListCmd.Flags().StringVarP(&proxmoxListCommandFlags.AuthTokenOrUsername, "username", "u", "root", "Username or Auth token name")
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.PasswordOrSecret, "password", "", "Password for user or Auth token")
-	proxmoxVmListCmd.Flags().BoolVar(&proxmoxListCommandFlags.UseToken, "use-token", false, "Use API token authentication")
-	proxmoxVmListCmd.Flags().BoolVar(&proxmoxListCommandFlags.SkipTls, "skip-tls", true, "Skip TLS/SSL certificate validation")
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.AuthTokenOrUsername, "proxmox-api-token", "", "Proxmox API token ID")
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.PasswordOrSecret, "proxmox-api-secret", "", "Proxmox API token secret")
+	proxmoxVmListCmd.Flags().StringVarP(&proxoxUserFlagVar, "username", "u", "root", "Username or Auth token name")
+	proxmoxVmListCmd.Flags().StringVar(&proxmoxPasswordFlagVar, "password", "", "Password for user or Auth token")
+	proxmoxVmListCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", true, "Use API token authentication")
+	proxmoxVmListCmd.Flags().BoolVar(&proxmoxIgnoreTLSErrorBoolVar, "skip-tls", true, "Skip TLS/SSL certificate validation")
+	proxmoxVmListCmd.Flags().StringVar(&proxmoxAuthToken, "proxmox-api-token", "", "Proxmox API token ID")
+	proxmoxVmListCmd.Flags().StringVar(&proxmoxAuthTokenSecret, "proxmox-api-secret", "", "Proxmox API token secret")
 
 	// Node flags
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.ApiUrl, "proxmox-api-url", "", "Proxmox api url")
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.PveNode, "pve-node", "proxmox3", "Proxmox node name")
-	proxmoxVmListCmd.Flags().StringVar(&proxmoxListCommandFlags.PvePort, "pve-port", "8006", "Proxmox PVE port")
+	proxmoxVmListCmd.Flags().StringVar(&proxmoxApiUrl, "proxmox-api-url", "", "Proxmox api url")
+	proxmoxVmListCmd.Flags().StringVar(&proxPveNodeFlagVar, "pve-node", "proxmox3", "Proxmox node name")
+	proxmoxVmListCmd.Flags().IntVar(&proxPortFlagVar, "pve-port", 8006, "Proxmox PVE port")
 }
