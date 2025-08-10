@@ -22,24 +22,13 @@ func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *VMCon
 	params := cfg.ToParams()
 	params.Set("vmid", fmt.Sprintf("%d", vmid))
 
-	path := fmt.Sprintf("/api2/json/nodes/%s/qemu", url.PathEscape(node))
+	path := fmt.Sprintf("%s/%s/qemu", apiNodesPath, url.PathEscape(node))
 	headers := map[string]string{
 		"Content-Type": "application/x-www-form-urlencoded",
 	}
 
 	// The Proxmox API expects POST for creating a VM.
 	return c.do(ctx, "POST", path, strings.NewReader(params.Encode()), headers, true, nil)
-}
-
-// VMConfigTyped represents common VM configuration fields.
-type VMConfigTyped struct {
-	Name        string      `json:"name,omitempty"`
-	MemoryMB    json.Number `json:"memory,omitempty"`
-	Sockets     json.Number `json:"sockets,omitempty"`
-	Cores       json.Number `json:"cores,omitempty"`
-	Description string      `json:"description,omitempty"`
-	// Raw holds additional fields not mapped above.
-	Raw map[string]string
 }
 
 // ToParams converts VMConfigTyped to API form parameters.
@@ -72,10 +61,10 @@ func (cfg *VMConfigTyped) ToParams() url.Values {
 
 // GetVMConfig returns a typed VM config.
 func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*VMConfigTyped, error) {
-	path := fmt.Sprintf("/api2/json/nodes/%s/qemu/%d/config", url.PathEscape(node), vmid)
+	path := fmt.Sprintf("%s/%s/qemu/%d/config", apiNodesPath, url.PathEscape(node), vmid)
 
 	// Use a json.Number-aware decoder to preserve number formatting
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := c.do(ctx, "GET", path, nil, nil, false, &raw); err != nil {
 		return nil, err
 	}
@@ -132,7 +121,7 @@ func (c *Client) UpdateVMConfig(ctx context.Context, node string, vmid int, cfg 
 		return fmt.Errorf("VMConfigTyped cannot be nil")
 	}
 	params := cfg.ToParams()
-	path := fmt.Sprintf("/api2/json/nodes/%s/qemu/%d/config", url.PathEscape(node), vmid)
+	path := fmt.Sprintf("%s/%s/qemu/%d/config", apiNodesPath, url.PathEscape(node), vmid)
 	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
 	return c.do(ctx, "PUT", path, strings.NewReader(params.Encode()), headers, true, nil)
 }

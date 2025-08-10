@@ -3,18 +3,20 @@ package proxmox
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 )
+
+const apiRootPath string = "/api2/json"
+const apiClusterResourcesPath string = "/api2/json/cluster/resources"
+const apiNodesPath string = "/api2/json/nodes"
 
 // APIError represents an error returned by the Proxmox API.
 type APIError struct {
@@ -73,47 +75,6 @@ func NewClientPassword(base, username, password string, tlsCfg bool) (*Client, e
 func NewClientToken(base, tokenID, secret string, tlsCfg bool) (*Client, error) {
 	// tokenID format: user@realm!tokenname
 	return newClient(base, tokenID, secret, AuthToken, true)
-}
-
-func newClientold(base, username, password string, method AuthMethod, tlsCfg TLSConfig) (*Client, error) {
-	if base == "" {
-		return nil, errors.New("base URL required")
-	}
-	u, err := url.Parse(strings.TrimRight(base, "/"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid base URL: %w", err)
-	}
-
-	// Setup TLS
-	tlsConf := &tls.Config{}
-	if tlsCfg.IgnoreCertErrors {
-		tlsConf.InsecureSkipVerify = true // skip verification (lab/dev use only)
-	}
-	if tlsCfg.CACertPath != "" {
-		caCert, err := os.ReadFile(tlsCfg.CACertPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert: %w", err)
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, errors.New("failed to parse CA certificate")
-		}
-		tlsConf.RootCAs = caCertPool
-	}
-
-	httpClient := &http.Client{
-		Timeout:   60 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsConf},
-	}
-
-	return &Client{
-		baseURL:     u,
-		authMethod:  method,
-		username:    username,
-		password:    password,
-		httpClient:  httpClient,
-		loginExpiry: 1 * time.Hour,
-	}, nil
 }
 
 func newClient(base, username, password string, method AuthMethod, ignoreTlsError bool) (*Client, error) {
@@ -212,7 +173,7 @@ func (c *Client) Login(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body io.Reader, headers map[string]string, csrf bool, out interface{}) error {
+func (c *Client) do(ctx context.Context, method, path string, body io.Reader, headers map[string]string, csrf bool, out any) error {
 	full := *c.baseURL
 	full.Path = strings.TrimRight(c.baseURL.Path, "/") + path
 

@@ -1,10 +1,52 @@
 package proxmox
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 )
+
+type ProxmoxResourceType int
+
+const (
+	Lxc ProxmoxResourceType = iota
+	QemuVm
+)
+
+func ParseQemuVmConfig(raw map[string]any) *VMConfigTyped {
+	cfg := &VMConfigTyped{Raw: make(map[string]string)}
+	for k, v := range raw {
+		switch k {
+		case "name":
+			cfg.Name = fmt.Sprintf("%v", v)
+		case "memory":
+			cfg.MemoryMB = toJSONNumber(v)
+		case "sockets":
+			cfg.Sockets = toJSONNumber(v)
+		case "cores":
+			cfg.Cores = toJSONNumber(v)
+		case "description":
+			cfg.Description = fmt.Sprintf("%v", v)
+		default:
+			cfg.Raw[k] = fmt.Sprintf("%v", v)
+		}
+	}
+	return cfg
+}
+
+// VMConfigTyped represents common VM configuration fields.
+type VMConfigTyped struct {
+	Name        string      `json:"name,omitempty"`
+	Vmid        json.Number `json:"vmid,omitempty"`
+	Type        string
+	MemoryMB    json.Number `json:"memory,omitempty"`
+	Sockets     json.Number `json:"sockets,omitempty"`
+	Cores       json.Number `json:"cores,omitempty"`
+	Description string      `json:"description,omitempty"`
+	// Raw holds additional fields not mapped above.
+	Raw map[string]string
+}
 
 // Auth stores the Proxmox API token-based credentials.
 type Auth struct {
