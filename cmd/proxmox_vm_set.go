@@ -88,7 +88,7 @@ func init() {
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxoxUserFlagVar, "username", "root", "Username or Auth token name")
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxmoxPasswordFlagVar, "password", "", "Password for user or Auth token")
 	proxmoxVmUpdateListCmd.Flags().StringVar(&rootCAPathFlagVar, "rootca-path", "", "RootCA path for TLS validation")
-	proxmoxVmUpdateListCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", false, "Use API token authentication")
+	proxmoxVmUpdateListCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", true, "Use API token authentication")
 	proxmoxVmUpdateListCmd.Flags().BoolVar(&proxmoxIgnoreTLSErrorBoolVar, "skip-tls", true, "Skip TLS/SSL certificate validation")
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxmoxAuthToken, "proxmox-api-token", "", "Proxmox API token ID")
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxmoxAuthTokenSecret, "proxmox-api-secret", "", "Proxmox API token secret")
@@ -96,7 +96,7 @@ func init() {
 	// VM Config
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxPveNodeFlagVar, "pve-node", "proxmox3", "Proxmox node name")
 	proxmoxVmUpdateListCmd.Flags().IntVar(&proxPortFlagVar, "pve-port", 8006, "Proxmox PVE Port")
-	proxmoxVmUpdateListCmd.Flags().IntSliceVar(&updateVmIDs, "vmids", []int{}, "Comma-separated list of VMIDs to update")
+	proxmoxVmUpdateListCmd.Flags().IntSliceVar(&updateVmIDs, "vmid", []int{}, "Comma-separated list of VMIDs to update")
 	proxmoxVmUpdateListCmd.Flags().StringVar(&proxVmNameFlagVar, "name", "", "Name for the Proxmox VM")
 	proxmoxVmUpdateListCmd.Flags().IntVar(&proxVmSocketFlagVar, "sockets", 1, "Number of sockets")
 	proxmoxVmUpdateListCmd.Flags().IntVar(&proxVmCoresFlagVar, "cores", 1, "CPU cores")

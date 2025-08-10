@@ -44,6 +44,12 @@ var proxmoxVmGetSubCmd = &cobra.Command{
 			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", localViper.GetString("pve_node"), localViper.GetInt("pve_port"))
 		}
 		slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
+		slog.Debug("Debug Viper Config Values",
+			slog.String("pveUser", pveUser),
+			slog.String("pveSecret", pveSecret),
+			slog.Bool("proxmoxIgnoreTLSErrorBoolVar", proxmoxIgnoreTLSErrorBoolVar),
+			slog.Bool("proxmoxApiAuthBoolVar", proxmoxApiAuthBoolVar),
+		)
 
 		client, err := proxmox.NewClient(
 			proxmoxApiUrl,
@@ -80,7 +86,7 @@ func init() {
 	proxmoxVmGetSubCmd.Flags().StringVar(&proxoxUserFlagVar, "username", "root", "Username or Auth token name")
 	proxmoxVmGetSubCmd.Flags().StringVar(&proxmoxPasswordFlagVar, "password", "", "Password for user or Auth token")
 	proxmoxVmGetSubCmd.Flags().StringVar(&rootCAPathFlagVar, "rootca-path", "", "RootCA path for TLS validation")
-	proxmoxVmGetSubCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", false, "Use API token authentication")
+	proxmoxVmGetSubCmd.Flags().BoolVar(&proxmoxApiAuthBoolVar, "use-token", true, "Use API token authentication")
 	proxmoxVmGetSubCmd.Flags().BoolVar(&proxmoxIgnoreTLSErrorBoolVar, "skip-tls", true, "Skip TLS/SSL certificate validation")
 	proxmoxVmGetSubCmd.Flags().StringVar(&proxmoxAuthToken, "proxmox-api-token", "", "Proxmox API token ID")
 	proxmoxVmGetSubCmd.Flags().StringVar(&proxmoxAuthTokenSecret, "proxmox-api-secret", "", "Proxmox API token secret")

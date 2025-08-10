@@ -75,7 +75,7 @@ func bindLocalFlags(cmd *cobra.Command, vp *viper.Viper) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		key := strings.ReplaceAll(f.Name, "-", "_")
 		if cmd.Flags().Changed(f.Name) {
-			slog.Debug("cobra cmd flag has been changed, binding to <F2>viper.Viper", "Name", f.Name)
+			slog.Debug("cobra cmd flag has been changed, binding to viper.Viper", "Name", f.Name)
 			_ = vp.BindPFlag(key, f)
 		}
 	})
