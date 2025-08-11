@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/babbage88/infra-cli/internal/pretty"
+	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -51,17 +53,38 @@ var proxmoxVmListCmd = &cobra.Command{
 			return fmt.Errorf("error retrieving VM list: %w", err)
 		}
 
-		// Pretty print JSON
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(vms); err != nil {
-			return fmt.Errorf("failed to encode VM list: %w", err)
+		if rawFlag {
+			// Pretty print JSON
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(vms); err != nil {
+				return fmt.Errorf("failed to encode VM list: %w", err)
+			}
+			return err
 		}
+
+		prettyPrintJsonVmList(vms, 2)
 
 		return nil
 	},
 }
 
+func prettyPrintJsonVmList(vms []proxmox.VMInfo, indent int) error {
+	var data interface{}
+	b, err := json.Marshal(vms)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal VMInfo: %w", err)
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal for printing: %w", err)
+	}
+
+	pretty.PrintColoredJSON(data, indent)
+	fmt.Println()
+	return nil
+
+}
 func init() {
 	proxmoxVmSubCmd.AddCommand(proxmoxVmListCmd)
 
