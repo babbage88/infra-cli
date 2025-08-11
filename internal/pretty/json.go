@@ -10,10 +10,10 @@ import (
 
 const (
 	jsonColorReset  = "\033[0m"
-	jsonColorCyan   = "\033[1;96m"
-	jsonColorGreen  = "\033[1;92m"
+	jsonColorCyan   = "\033[38;5;51m"
+	jsonColorGreen  = "\033[38;5;49m"
 	jsonColorWhite  = "\033[1;97m"
-	jsonColorOrange = "\033[38;5;208m" // 256-color orange
+	jsonColorOrange = "\033[38;5;11m" // 256-color orange
 )
 
 type VMConfigTyped struct {
