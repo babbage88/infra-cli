@@ -113,7 +113,7 @@ func (cfg *VMConfigTyped) PrettyPrintJSON() error {
 		return fmt.Errorf("failed to unmarshal for printing: %w", err)
 	}
 
-	pretty.PrintColoredJSON(data, 4)
+	pretty.PrintColoredJSON(data, 0)
 	fmt.Println()
 	return nil
 }

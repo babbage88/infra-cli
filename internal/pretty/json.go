@@ -3,6 +3,7 @@ package pretty
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/babbage88/infra-cli/internal/type_helper"
 )
@@ -21,11 +22,11 @@ type VMConfigTyped struct {
 	Memory int    `json:"memory"`
 }
 
-func PrintColoredJSON(v interface{}, indent int) {
-	indentStr := func(n int) string {
-		return string(make([]byte, n*2)) // two spaces per indent
-	}
+func indentStr(n int) string {
+	return strings.Repeat("  ", n) // two spaces per indent
+}
 
+func PrintColoredJSON(v interface{}, indent int) {
 	switch val := v.(type) {
 	case map[string]interface{}:
 		fmt.Println("{")
