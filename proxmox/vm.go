@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/babbage88/infra-cli/internal/pretty"
 )
 
 // CreateVM creates a new VM on a given Proxmox node using VMConfigTyped.
@@ -97,6 +99,22 @@ func (cfg *VMConfigTyped) PrintJSON() error {
 		return fmt.Errorf("failed to marshal VMConfigTyped: %w", err)
 	}
 	fmt.Println(string(data))
+	return nil
+}
+
+func (cfg *VMConfigTyped) PrettyPrintJSON() error {
+	// Marshal to generic interface
+	var data interface{}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal VMConfigTyped: %w", err)
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal for printing: %w", err)
+	}
+
+	pretty.PrintColoredJSON(data, 4)
+	fmt.Println()
 	return nil
 }
 

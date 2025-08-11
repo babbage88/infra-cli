@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/proxmox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -16,10 +15,7 @@ var proxmoxVmGetSubCmd = &cobra.Command{
 	Short: "Command for updating a Proxmox VM's configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		localViper := viper.New()
-		var (
-			pveUser   string
-			pveSecret string
-		)
+
 		cfgFile, _ := cmd.Flags().GetString("config-file")
 		if cfgFile != "" {
 			err := loadProxmoxConfigFile(cfgFile, localViper)
@@ -32,32 +28,8 @@ var proxmoxVmGetSubCmd = &cobra.Command{
 		bindLocalFlags(cmd, localViper)
 		ctx := context.Background()
 
-		if proxmoxApiAuthBoolVar {
-			pveUser = localViper.GetString("proxmox_api_token")
-			pveSecret = localViper.GetString("proxmox_api_secret")
-		} else {
-			pveUser = localViper.GetString("username")
-			pveSecret = localViper.GetString("password")
-		}
+		client, err := newProxmoxClientFromViperConfig(localViper)
 
-		if proxmoxApiUrl == "" {
-			proxmoxApiUrl = fmt.Sprintf("https://%s:%d", localViper.GetString("pve_node"), localViper.GetInt("pve_port"))
-		}
-		slog.Info("Proxmox API URL", "url", proxmoxApiUrl)
-		slog.Debug("Debug Viper Config Values",
-			slog.String("pveUser", pveUser),
-			slog.String("pveSecret", pveSecret),
-			slog.Bool("proxmoxIgnoreTLSErrorBoolVar", proxmoxIgnoreTLSErrorBoolVar),
-			slog.Bool("proxmoxApiAuthBoolVar", proxmoxApiAuthBoolVar),
-		)
-
-		client, err := proxmox.NewClient(
-			proxmoxApiUrl,
-			pveUser,
-			pveSecret,
-			proxmoxIgnoreTLSErrorBoolVar,
-			proxmoxApiAuthBoolVar,
-		)
 		if err != nil {
 			slog.Error("failed to create proxmox client", slog.String("url", proxmoxApiUrl), "error", err.Error())
 			return err
@@ -71,7 +43,7 @@ var proxmoxVmGetSubCmd = &cobra.Command{
 				continue // skip errors but keep going
 			}
 			fmt.Printf("\n=== VMID %d ===\n", vmid)
-			vmInfo.PrintJSON()
+			vmInfo.PrettyPrintJSON()
 		}
 		return nil
 	},
