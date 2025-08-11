@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -91,6 +92,32 @@ func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*VMCon
 		}
 	}
 	return cfg, nil
+}
+
+func (c *Client) StartVM(ctx context.Context, node string, vmid int) (map[string]any, error) {
+	path := fmt.Sprintf("%s/%s/qemu/%d%s", apiNodesPath, url.PathEscape(node), vmid, apiVmStartSubPath)
+
+	var resp map[string]any
+
+	slog.Info("Sending http client POST to start vm", slog.String("node", node), slog.Int("vmid", vmid), slog.String("path", path))
+	if err := c.do(ctx, http.MethodPost, path, nil, nil, false, &resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (c *Client) StopVM(ctx context.Context, node string, vmid int) (map[string]any, error) {
+	path := fmt.Sprintf("%s/%s/qemu/%d%s", apiNodesPath, url.PathEscape(node), vmid, apiVmStopSubPath)
+
+	var resp map[string]any
+
+	slog.Info("Sending http client POST to stop vm", slog.String("node", node), slog.Int("vmid", vmid), slog.String("path", path))
+	if err := c.do(ctx, http.MethodPost, path, nil, nil, false, &resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (cfg *VMConfigTyped) PrintJSON() error {

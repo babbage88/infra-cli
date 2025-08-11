@@ -17,6 +17,8 @@ import (
 const apiRootPath string = "/api2/json"
 const apiClusterResourcesPath string = "/api2/json/cluster/resources"
 const apiNodesPath string = "/api2/json/nodes"
+const apiVmStartSubPath string = "/status/start"
+const apiVmStopSubPath string = "/status/stop"
 
 // APIError represents an error returned by the Proxmox API.
 type APIError struct {

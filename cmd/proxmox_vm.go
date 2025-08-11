@@ -29,6 +29,7 @@ var (
 	proxmoxAuthTokenSecret       string
 	proxmoxApiAuthBoolVar        bool
 	proxmoxIgnoreTLSErrorBoolVar bool
+	proxmoxPowerOnVm             bool
 	rootCAPathFlagVar            string
 )
 

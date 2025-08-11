@@ -59,7 +59,7 @@ func PrintColoredJSON(v interface{}, indent int) {
 
 	case string:
 		if type_helper.IsNumber(val) {
-			fmt.Printf("%s\"%s\"%s", jsonColorOrange, val, jsonColorReset)
+			fmt.Printf("%s\"%s\"%s", jsonColorGreen, val, jsonColorReset)
 		} else {
 			fmt.Printf("%s\"%s\"%s", jsonColorGreen, val, jsonColorReset)
 		}
@@ -67,13 +67,13 @@ func PrintColoredJSON(v interface{}, indent int) {
 	case float64:
 		// JSON numbers unmarshal as float64
 		if reflect.TypeOf(val).Kind() == reflect.Float64 && val == float64(int(val)) {
-			fmt.Printf("%s%d%s", jsonColorOrange, int(val), jsonColorReset)
+			fmt.Printf("%s%d%s", jsonColorWhite, int(val), jsonColorReset)
 		} else {
-			fmt.Printf("%s%f%s", jsonColorOrange, val, jsonColorReset)
+			fmt.Printf("%s%f%s", jsonColorWhite, val, jsonColorReset)
 		}
 
 	case bool:
-		fmt.Printf("%s%t%s", jsonColorWhite, val, jsonColorReset)
+		fmt.Printf("%s%t%s", jsonColorOrange, val, jsonColorReset)
 
 	case nil:
 		fmt.Print("null")

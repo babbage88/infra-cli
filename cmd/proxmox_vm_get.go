@@ -44,7 +44,11 @@ var proxmoxVmGetSubCmd = &cobra.Command{
 			}
 			fmt.Printf("\n=== VMID %d ===\n", vmid)
 			vmInfo.PrettyPrintJSON()
+			if proxmoxPowerOnVm {
+				client.StartVM(ctx, proxPveNodeFlagVar, vmid)
+			}
 		}
+
 		return nil
 	},
 }
@@ -68,4 +72,6 @@ func init() {
 	proxmoxVmGetSubCmd.Flags().IntVar(&proxPortFlagVar, "pve-port", 8006, "Proxmox PVE Port")
 	proxmoxVmGetSubCmd.Flags().IntSliceVar(&proxVmIdFlagVar, "vmid", nil, "One or more VMIDs to retrieve")
 	proxmoxVmGetSubCmd.Flags().StringVar(&proxVmNameFlagVar, "name", "", "Name for the Proxmox VM")
+	proxmoxVmGetSubCmd.Flags().BoolVar(&proxmoxPowerOnVm, "start", false, "Start/Power on the VM")
+
 }
