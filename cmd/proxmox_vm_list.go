@@ -48,7 +48,7 @@ var proxmoxVmListCmd = &cobra.Command{
 		defer cancel()
 
 		// Fetch VMs
-		vms, err := client.ListVMs(ctx, proxPveNodeFlagVar)
+		vms, err := client.ListVMs(ctx, proxPveNodeFlagVar, proxmoxListFullVmInfoFlagVar)
 		if err != nil {
 			return fmt.Errorf("error retrieving VM list: %w", err)
 		}
@@ -69,10 +69,9 @@ var proxmoxVmListCmd = &cobra.Command{
 	},
 }
 
-func prettyPrintJsonVmList(vms []proxmox.VMInfo, indent int) error {
+func prettyPrintJsonVmList(vms []proxmox.QemuVm, indent int) error {
 	var data interface{}
 	b, err := json.Marshal(vms)
-
 	if err != nil {
 		return fmt.Errorf("failed to marshal VMInfo: %w", err)
 	}
@@ -83,8 +82,8 @@ func prettyPrintJsonVmList(vms []proxmox.VMInfo, indent int) error {
 	pretty.PrintColoredJSON(data, indent)
 	fmt.Println()
 	return nil
-
 }
+
 func init() {
 	proxmoxVmSubCmd.AddCommand(proxmoxVmListCmd)
 
@@ -103,4 +102,7 @@ func init() {
 	proxmoxVmListCmd.Flags().StringVar(&proxmoxApiUrl, "proxmox-api-url", "", "Proxmox api url")
 	proxmoxVmListCmd.Flags().StringVar(&proxPveNodeFlagVar, "pve-node", "proxmox3", "Proxmox node name")
 	proxmoxVmListCmd.Flags().IntVar(&proxPortFlagVar, "pve-port", 8006, "Proxmox PVE port")
+
+	// Query Params
+	proxmoxVmListCmd.Flags().BoolVar(&proxmoxListFullVmInfoFlagVar, "full", false, "list full VM Info")
 }

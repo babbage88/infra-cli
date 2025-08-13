@@ -30,6 +30,7 @@ var (
 	proxmoxApiAuthBoolVar        bool
 	proxmoxIgnoreTLSErrorBoolVar bool
 	proxmoxPowerOnVm             bool
+	proxmoxListFullVmInfoFlagVar bool
 	rootCAPathFlagVar            string
 )
 
@@ -74,8 +75,8 @@ func newProxmoxClientFromViperConfig(vp *viper.Viper) (*proxmox.Client, error) {
 }
 
 // buildVMConfigFromCmd builds a VMConfigTyped containing only flags that were explicitly set.
-func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.VMConfigTyped, error) {
-	cfg := &proxmox.VMConfigTyped{Raw: make(map[string]string)}
+func buildVMConfigFromCmd(cmd *cobra.Command) (*proxmox.ProxmoxQemuVmConfig, error) {
+	cfg := &proxmox.ProxmoxQemuVmConfig{Raw: make(map[string]string)}
 
 	// string flags
 	if cmd.Flags().Changed("name") {

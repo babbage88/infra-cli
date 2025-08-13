@@ -28,8 +28,8 @@ func intToJsonNumber(i int) json.Number {
 	return json.Number(strInt)
 }
 
-func (v *ProxmoxVmCommandFlags) ParseVMConfigTyped() *proxmox.VMConfigTyped {
-	vmConfig := proxmox.VMConfigTyped{
+func (v *ProxmoxVmCommandFlags) ParseVMConfigTyped() *proxmox.ProxmoxQemuVmConfig {
+	vmConfig := proxmox.ProxmoxQemuVmConfig{
 		Name:        v.Name,
 		MemoryMB:    intToJsonNumber(v.MemoryMB),
 		Sockets:     intToJsonNumber(v.Sockets),

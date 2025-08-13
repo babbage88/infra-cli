@@ -1,0 +1,49 @@
+{
+    "data": [
+        {
+            "type": "dir",
+            "shared": 0,
+            "digest": "6bc1ab31aefc34869b27ef17f9b295cd09a1e594",
+            "storage": "local",
+            "path": "/var/lib/vz",
+            "content": "backup,iso,rootdir,images,vztmpl,snippets"
+        },
+        {
+            "prune-backups": "keep-all=1",
+            "digest": "6bc1ab31aefc34869b27ef17f9b295cd09a1e594",
+            "type": "dir",
+            "shared": 0,
+            "path": "/mnt/data/backup",
+            "content": "vztmpl,snippets,iso,rootdir,images,backup",
+            "storage": "storageprox"
+        },
+        {
+            "path": "/mnt/pve/wal_backups",
+            "export": "/mnt/trahan-nas",
+            "content": "images,iso,rootdir,snippets,vztmpl,backup",
+            "storage": "wal_backups",
+            "digest": "6bc1ab31aefc34869b27ef17f9b295cd09a1e594",
+            "prune-backups": "keep-all=1",
+            "type": "nfs",
+            "server": "10.0.0.8",
+            "shared": 1
+        },
+        {
+            "content": "rootdir,images",
+            "storage": "local-lvm",
+            "vgname": "pve",
+            "thinpool": "data",
+            "digest": "6bc1ab31aefc34869b27ef17f9b295cd09a1e594",
+            "type": "lvmthin"
+        },
+        {
+            "path": "/mnt/hddata",
+            "content": "backup,iso,rootdir,images,vztmpl,snippets",
+            "storage": "hddata",
+            "prune-backups": "keep-all=1",
+            "digest": "6bc1ab31aefc34869b27ef17f9b295cd09a1e594",
+            "type": "dir",
+            "shared": 0
+        }
+    ]
+}

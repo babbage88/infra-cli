@@ -7,23 +7,27 @@ import (
 	"os"
 )
 
-// VMInfo represents basic information about a VM from Proxmox.
-type VMInfo struct {
-	VMID     int     `json:"vmid"`
+// QemuVm represents basic information about a VM from Proxmox.
+type QemuVm struct {
+	Vmid     int     `json:"vmid"`
 	Name     string  `json:"name"`
 	Status   string  `json:"status"`
 	CPU      float64 `json:"cpu,omitempty"`
 	MaxMem   int64   `json:"maxmem,omitempty"`
+	MemHost  int     `json:"memhost,omitempty"`
 	Mem      int64   `json:"mem,omitempty"`
 	MaxDisk  int64   `json:"maxdisk,omitempty"`
+	NetIn    int     `json:"netin,omitempty"`
+	NetOut   int     `json:"netout,omitempty"`
 	Disk     int64   `json:"disk,omitempty"`
 	Uptime   int64   `json:"uptime,omitempty"`
 	Node     string  `json:"node,omitempty"`
+	PID      int     `json:"pid,omitempty"`
 	Template int     `json:"template,omitempty"`
 }
 
-func ParseQemuVmConfig(raw map[string]any) *VMConfigTyped {
-	cfg := &VMConfigTyped{Raw: make(map[string]string)}
+func ParseQemuVmConfig(raw map[string]any) *ProxmoxQemuVmConfig {
+	cfg := &ProxmoxQemuVmConfig{Raw: make(map[string]string)}
 	for k, v := range raw {
 		switch k {
 		case "name":
@@ -43,8 +47,8 @@ func ParseQemuVmConfig(raw map[string]any) *VMConfigTyped {
 	return cfg
 }
 
-// VMConfigTyped represents common VM configuration fields.
-type VMConfigTyped struct {
+// ProxmoxQemuVmConfig represents common VM configuration fields.
+type ProxmoxQemuVmConfig struct {
 	Name        string      `json:"name,omitempty"`
 	Vmid        json.Number `json:"vmid,omitempty"`
 	MemoryMB    json.Number `json:"memory,omitempty"`

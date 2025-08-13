@@ -16,7 +16,7 @@ import (
 
 // CreateVM creates a new VM on a given Proxmox node using VMConfigTyped.
 // vmid must be a unique unused VM ID.
-func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *VMConfigTyped) error {
+func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *ProxmoxQemuVmConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("VMConfigTyped cannot be nil")
 	}
@@ -37,7 +37,7 @@ func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *VMCon
 }
 
 // ToParams converts VMConfigTyped to API form parameters.
-func (cfg *VMConfigTyped) ToParams() url.Values {
+func (cfg *ProxmoxQemuVmConfig) ToParams() url.Values {
 	params := url.Values{}
 
 	if cfg.Name != "" {
@@ -65,7 +65,7 @@ func (cfg *VMConfigTyped) ToParams() url.Values {
 }
 
 // GetVMConfig returns a typed VM config.
-func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*VMConfigTyped, error) {
+func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*ProxmoxQemuVmConfig, error) {
 	path := fmt.Sprintf("%s/%s/qemu/%d/config", apiNodesPath, url.PathEscape(node), vmid)
 
 	// Use a json.Number-aware decoder to preserve number formatting
@@ -74,7 +74,7 @@ func (c *Client) GetVMConfig(ctx context.Context, node string, vmid int) (*VMCon
 		return nil, err
 	}
 
-	cfg := &VMConfigTyped{Raw: make(map[string]string)}
+	cfg := &ProxmoxQemuVmConfig{Raw: make(map[string]string)}
 	for k, v := range raw {
 		switch k {
 		case "name":
@@ -120,7 +120,7 @@ func (c *Client) StopVM(ctx context.Context, node string, vmid int) (map[string]
 	return resp, nil
 }
 
-func (cfg *VMConfigTyped) PrintJSON() error {
+func (cfg *ProxmoxQemuVmConfig) PrintJSON() error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal VMConfigTyped: %w", err)
@@ -129,7 +129,7 @@ func (cfg *VMConfigTyped) PrintJSON() error {
 	return nil
 }
 
-func (cfg *VMConfigTyped) PrettyPrintJSON() error {
+func (cfg *ProxmoxQemuVmConfig) PrettyPrintJSON() error {
 	// Marshal to generic interface
 	var data interface{}
 	b, err := json.Marshal(cfg)
@@ -163,7 +163,7 @@ func toJSONNumber(v any) json.Number {
 }
 
 // UpdateVMConfig updates a VM configuration using VMConfigTyped.
-func (c *Client) UpdateVMConfig(ctx context.Context, node string, vmid int, cfg *VMConfigTyped) error {
+func (c *Client) UpdateVMConfig(ctx context.Context, node string, vmid int, cfg *ProxmoxQemuVmConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("VMConfigTyped cannot be nil")
 	}
@@ -175,18 +175,18 @@ func (c *Client) UpdateVMConfig(ctx context.Context, node string, vmid int, cfg 
 
 // SetMemory updates VM memory (MB) using VMConfigTyped.
 func (c *Client) SetMemory(ctx context.Context, node string, vmid int, memMB int) error {
-	cfg := &VMConfigTyped{MemoryMB: json.Number(fmt.Sprintf("%d", memMB))}
+	cfg := &ProxmoxQemuVmConfig{MemoryMB: json.Number(fmt.Sprintf("%d", memMB))}
 	return c.UpdateVMConfig(ctx, node, vmid, cfg)
 }
 
 // SetCores updates CPU cores using VMConfigTyped.
 func (c *Client) SetCores(ctx context.Context, node string, vmid int, cores int) error {
-	cfg := &VMConfigTyped{Cores: json.Number(fmt.Sprintf("%d", cores))}
+	cfg := &ProxmoxQemuVmConfig{Cores: json.Number(fmt.Sprintf("%d", cores))}
 	return c.UpdateVMConfig(ctx, node, vmid, cfg)
 }
 
-func (c *Client) ListVMs(ctx context.Context, node string) ([]VMInfo, error) {
-	url := fmt.Sprintf("%s/api2/json/nodes/%s/qemu", c.baseURL, node)
+func (c *Client) ListVMs(ctx context.Context, node string, full bool) ([]QemuVm, error) {
+	url := fmt.Sprintf("%s/api2/json/nodes/%s/qemu?full=%t", c.baseURL, node, full)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -214,7 +214,7 @@ func (c *Client) ListVMs(ctx context.Context, node string) ([]VMInfo, error) {
 	}
 
 	var result struct {
-		Data []VMInfo `json:"data"`
+		Data []QemuVm `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding data: %w", err)
