@@ -15,7 +15,7 @@
 
       # Fetch the Git repository
       src = pkgs.fetchFromGitHub {
-        owner = "babbage";
+        owner = "babbage88";
         repo = "infra-cli";
         rev = "eda5a97860a784d817627cb1b3a7255bf914f6e4";
         sha256 = "sha256-hash-here"; # Run nix build once to get the correct hash
