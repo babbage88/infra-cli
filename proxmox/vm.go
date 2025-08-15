@@ -186,7 +186,11 @@ func (c *Client) SetCores(ctx context.Context, node string, vmid int, cores int)
 }
 
 func (c *Client) ListVMs(ctx context.Context, node string, full bool) ([]QemuVm, error) {
-	url := fmt.Sprintf("%s/api2/json/nodes/%s/qemu?full=%t", c.baseURL, node, full)
+	var fullInt int = 0
+	if full {
+		fullInt = int(1)
+	}
+	url := fmt.Sprintf("%s/api2/json/nodes/%s/qemu?full=%d", c.baseURL, node, fullInt)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

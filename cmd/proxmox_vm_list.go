@@ -104,5 +104,5 @@ func init() {
 	proxmoxVmListCmd.Flags().IntVar(&proxPortFlagVar, "pve-port", 8006, "Proxmox PVE port")
 
 	// Query Params
-	proxmoxVmListCmd.Flags().BoolVar(&proxmoxListFullVmInfoFlagVar, "full", false, "list full VM Info")
+	proxmoxVmListCmd.Flags().BoolVar(&proxmoxListFullVmInfoFlagVar, "full", true, "list full VM Info")
 }
