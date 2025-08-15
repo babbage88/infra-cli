@@ -1,3 +1,4 @@
+dist/infractl
 pve.yaml
 setup.sh
 scratch.MD
