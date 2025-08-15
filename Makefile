@@ -63,7 +63,7 @@ install: build
 	@mv $(ARTIFACT) $(INSTALL_PATH)/$(BIN_NAME)
 
 # Add this target to the end of your Makefile
-.PHONY: build-validate utils-dir utils build build-quiet install
+.PHONY: build-validate utils-dir utils build build-quiet install fetch-tags
 
 # Usage: make release [VERSION=major|minor|patch]
 fetch-tags:
