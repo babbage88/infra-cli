@@ -10,11 +10,12 @@
     pkgs = import nixpkgs { inherit system; };
 
     # Development source: live git clone (no sha256 needed)
-    devSrc = builtins.fetchGit {
-      url = "https://github.com/babbage88/infra-cli.git";
-      ref = "develop"; # or "main", or a feature branch
-      sha256 = pkgs.lib.fakeSha256;
-    };
+    src = pkgs.fetchFromGitHub {
+  owner = "babbage88";
+  repo = "infra-cli";
+  rev = "develop"; # or commit hash
+  sha256 = pkgs.lib.fakeSha256;
+};
   in {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
       pname = "infractl";
