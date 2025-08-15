@@ -2,34 +2,35 @@
   description = "Flake to build by pulling from git repo using make install";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05"; # or unstable
   };
 
   outputs = { self, nixpkgs }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs { inherit system; };
-
-    # Development source: live git clone (no sha256 needed)
-    src = pkgs.fetchFromGitHub {
-  owner = "babbage88";
-  repo = "infra-cli";
-  rev = "develop"; # or commit hash
-  sha256 = pkgs.lib.fakeSha256;
-};
   in {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
       pname = "infractl";
       version = "0.0.99";
 
-      src = devSrc;
+      # Fetch the Git repository (fake hash for now)
+      src = pkgs.fetchFromGitHub {
+        owner = "babbage88";
+        repo = "infra-cli";
+        rev = "develop"; # or a commit hash for production
+        sha256 = pkgs.lib.fakeSha256; # placeholder — Nix will tell you the real one
+      };
 
+      # Build dependencies
       nativeBuildInputs = [ pkgs.makeWrapper ];
       buildInputs = [ pkgs.go pkgs.git ];
 
+      # Build phase
       buildPhase = ''
         make build
       '';
 
+      # Install phase
       installPhase = ''
         make install PREFIX=$out
       '';
