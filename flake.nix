@@ -23,7 +23,7 @@
 
       # Build dependencies
       nativeBuildInputs = [ pkgs.makeWrapper ];
-      buildInputs = [ pkgs.go pkgs.git ];
+      buildInputs = [ pkgs.go pkgs.git pkgs.makeWrapper pkgs.bash];
 
       # Build phase
       buildPhase = ''
