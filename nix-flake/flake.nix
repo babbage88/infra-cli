@@ -18,7 +18,8 @@
         owner = "babbage88";
         repo = "infra-cli";
         rev = "eda5a97860a784d817627cb1b3a7255bf914f6e4";
-        sha256 = "sha256-hash-here"; # Run nix build once to get the correct hash
+        # Start with a fake but valid hash so Nix will print the real one
+        sha256 = pkgs.lib.fakeSha256;
       };
 
       # Dependencies for build
@@ -36,9 +37,9 @@
       '';
 
       meta = with pkgs.lib; {
-        description = "CLI for manageing hybrid infrastucture and deployments";
+        description = "CLI for managing hybrid infrastructure and deployments";
         license = licenses.mit;
-        maintainers = with maintainers; [ yourName ];
+        maintainers = []; # fill in with maintainers.<name> if desired
         platforms = platforms.linux;
       };
     };
