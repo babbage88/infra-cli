@@ -18,7 +18,7 @@
         owner = "babbage88";
         repo = "infra-cli";
         rev = "develop"; # or a commit hash for production
-        sha256 = pkgs.lib.fakeSha256; # placeholder — Nix will tell you the real one
+        sha256 = "sha256-LKpIEIvQtc2vnfOKCQbS//hwVY7GCvTrb8M6X5Fi2wA="; # placeholder — Nix will tell you the real one
       };
 
       # Build dependencies
