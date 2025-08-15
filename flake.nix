@@ -13,6 +13,7 @@
     devSrc = builtins.fetchGit {
       url = "https://github.com/babbage88/infra-cli.git";
       ref = "develop"; # or "main", or a feature branch
+      sha256 = pkgs.lib.fakeSha256;
     };
   in {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
