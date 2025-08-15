@@ -19,7 +19,7 @@
         repo = "infra-cli";
         rev = "eda5a97860a784d817627cb1b3a7255bf914f6e4";
         # Start with a fake but valid hash so Nix will print the real one
-        sha256 = pkgs.lib.fakeSha256;
+        sha256 = "sha256-73SniEpXdUmiq0hR1kAVzfW/MLgwHGmM2tGQ7FbokQo=";
       };
 
       # Dependencies for build
