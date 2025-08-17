@@ -9,21 +9,34 @@ import (
 
 // QemuVm represents basic information about a VM from Proxmox.
 type QemuVm struct {
-	Vmid     int     `json:"vmid"`
-	Name     string  `json:"name"`
-	Status   string  `json:"status"`
-	CPU      float64 `json:"cpu,omitempty"`
-	MaxMem   int64   `json:"maxmem,omitempty"`
-	MemHost  int     `json:"memhost,omitempty"`
-	Mem      int64   `json:"mem,omitempty"`
-	MaxDisk  int64   `json:"maxdisk,omitempty"`
-	NetIn    int     `json:"netin,omitempty"`
-	NetOut   int     `json:"netout,omitempty"`
-	Disk     int64   `json:"disk,omitempty"`
-	Uptime   int64   `json:"uptime,omitempty"`
-	Node     string  `json:"node,omitempty"`
-	PID      int     `json:"pid,omitempty"`
-	Template int     `json:"template,omitempty"`
+	Vmid              int     `json:"vmid"`
+	Name              string  `json:"name"`
+	Status            string  `json:"status"`
+	CPU               float64 `json:"cpu,omitempty"`
+	MaxMem            int64   `json:"maxmem,omitempty"`
+	MemHost           int     `json:"memhost,omitempty"`
+	Mem               int64   `json:"mem,omitempty"`
+	MaxDisk           int64   `json:"maxdisk,omitempty"`
+	NetIn             int     `json:"netin,omitempty"`
+	NetOut            int     `json:"netout,omitempty"`
+	Disk              int64   `json:"disk,omitempty"`
+	DiskRead          int     `json:"diskread,omitempty"`
+	DiskWrite         int     `json:"diskwrite,omitempty"`
+	Node              string  `json:"node,omitempty"`
+	PID               int     `json:"pid,omitempty"`
+	PresureCpuFull    int     `json:"pressurecpufull,omitempty"`
+	PresureCpuSome    int     `json:"pressurecpusome,omitempty"`
+	PresureIoFull     int     `json:"pressureiofull,omitempty"`
+	PresureIoSome     int     `json:"pressureiosome,omitempty"`
+	PresureMemoryFull int     `json:"pressurememoryfull,omitempty"`
+	PresureMemorySome int     `json:"pressurememorysome,omitempty"`
+	QmStatus          string  `json:"qmstatus,omitempty"`
+	RunningMachine    string  `json:"running-machine,omitempty"`
+	RunningQemu       string  `json:"running-qemu,omitempty"`
+	Serial            int     `json:"serial,omitempty"`
+	Tags              string  `json:"tags,omitempty"`
+	Template          int     `json:"template,omitempty"`
+	Uptime            int64   `json:"uptime,omitempty"`
 }
 
 func ParseQemuVmConfig(raw map[string]any) *ProxmoxQemuVmConfig {
