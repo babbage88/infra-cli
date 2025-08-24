@@ -21,15 +21,12 @@ var (
 	sshKeyPass                              string
 	sshRemoteTargetHost                     string
 	sshRemoteTargetUser                     string
-	cpuProfilePath                          string
 	sshUseAgent                             bool
 	sshPort                                 uint
 	jwtAuthToken                            string
 	cfgFile, metaCfgFile, dnsCfgFile        string
 	apiTokens                               map[string]string
-	rootDomainName                          string
 	rawFlag                                 bool
-	suplementalCfg                          []string
 	rootViperCfg, dnsViperCfg, metaViperCfg *viper.Viper
 )
 
@@ -61,14 +58,6 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&jwtAuthToken, "auth-token", "",
 		"JWT Token for authentication with both manager or external WebAPIs")
-
-	rootCmd.PersistentFlags().StringVar(&rootDomainName, "domain-name", "",
-		"The root domain/zone name for which dns changes or queries will be made. ")
-
-	rootCmd.PersistentFlags().StringVar(&cpuProfilePath, "cpu-profile", "",
-		"File path to create cpu profile for preformance testing.")
-
-	rootCmd.PersistentFlags().StringArrayVarP(&suplementalCfg, "optional-config", "k", nil, "Additional config viles to merge.")
 
 	rootCmd.PersistentFlags().StringVar(&sshKeyPath, "ssh-key", "",
 		"Path to SSH Key for performing tasks on remote hosts")
@@ -103,7 +92,6 @@ func initConfig() {
 	rootViperCfg.SetDefault("api_tokens", apiTokens)
 	rootViperCfg.BindPFlag("api_tokens", rootCmd.PersistentFlags().Lookup("api-tokens"))
 	rootViperCfg.BindPFlag("auth_token", rootCmd.PersistentFlags().Lookup("auth-token"))
-	rootViperCfg.BindPFlag("domain_name", rootCmd.PersistentFlags().Lookup("domain-name"))
 	rootViperCfg.BindPFlag("ssh_key", rootCmd.PersistentFlags().Lookup("ssh-key"))
 	rootViperCfg.BindPFlag("ssh_passphrase", rootCmd.PersistentFlags().Lookup("ssh-passphrase"))
 	rootViperCfg.BindPFlag("ssh_use_agent", rootCmd.PersistentFlags().Lookup("ssh-use-agent"))
@@ -111,7 +99,6 @@ func initConfig() {
 	rootViperCfg.BindPFlag("ssh_remote_host", rootCmd.PersistentFlags().Lookup("ssh-remote-host"))
 	rootViperCfg.BindPFlag("ssh_remote_user", rootCmd.PersistentFlags().Lookup("ssh-remote-user"))
 	rootViperCfg.BindPFlag("optional_config", rootCmd.PersistentFlags().Lookup("optional-config"))
-	rootViperCfg.BindPFlag("cpu_profile", rootCmd.PersistentFlags().Lookup("cpu-profile"))
 
 	rootViperCfg.AutomaticEnv()
 
