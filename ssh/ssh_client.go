@@ -3,9 +3,9 @@ package ssh
 import (
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
+	"os"
 
 	"github.com/babbage88/goph/v2"
 	"github.com/pkg/sftp"
@@ -60,7 +60,8 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 	if agent || goph.HasAgent() {
 		auth, err = goph.UseAgent()
 		if err != nil {
-			log.Fatal(err)
+			slog.Error(err.Error())
+			os.Exit(1)
 		}
 
 	} else {
@@ -68,7 +69,8 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 	}
 
 	if err != nil {
-		log.Fatal(err)
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 
 	client, err := goph.NewConn(&goph.Config{
@@ -79,7 +81,8 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 		Callback: VerifyHost,
 	})
 	if err != nil {
-		log.Fatal(err)
+		slog.Error(err.Error())
+		os.Exit(1)
 	}
 	// Defer closing the network connection.
 	return client, err
@@ -119,7 +122,7 @@ func NewRemoteAppDeploymentAgentWithPassword(hostname, sshUser, srcUtilsPath, ds
 func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstUtilsPath, sshKey, sshPassphrase string, envVars map[string]string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
 	sshClient, err := initializeSshClient(hostname, sshUser, port, sshKey, sshPassphrase, agent)
 	if err != nil {
-		log.Printf("Error initializing ssh client %s\n", err.Error())
+		slog.Error("Error initializing ssh client", "error", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
 	}
 
@@ -136,7 +139,7 @@ func NewRemoteAppDeploymentAgentWithSshKey(hostname, sshUser, srcUtilsPath, dstU
 func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, agent bool, port uint) (*RemoteAppDeploymentAgent, error) {
 	sshClient, err := initializeSshClient(hostname, sshUser, port, sshKey, sshPassphrase, agent)
 	if err != nil {
-		log.Printf("Error initializing ssh client %s\n", err.Error())
+		slog.Error("Error initializing ssh client", "error", err.Error())
 		return nil, SshErrorWrapper(500, err, "failed to initialize ssh client")
 	}
 
@@ -150,7 +153,7 @@ func InitializeRemoteSshAgent(hostname, sshUser, sshKey, sshPassphrase string, a
 func (r *RemoteAppDeploymentAgent) CopyUtilsToRemoteHost() error {
 	err := r.SshClient.Upload(r.SourceUtilsDir, r.DestinationUtilsDir)
 	if err != nil {
-		log.Printf("Error uploading RemoteUtils src: %s dst: %s err: %s\n", r.SourceUtilsDir, r.DestinationUtilsDir, err.Error())
+		slog.Error("Error uploading RemoteUtils", slog.String("src", r.SourceUtilsDir), slog.String("dst", r.DestinationUtilsDir), "error", err.Error())
 		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
 	}
 	return nil
@@ -159,7 +162,7 @@ func (r *RemoteAppDeploymentAgent) CopyUtilsToRemoteHost() error {
 func (r *RemoteAppDeploymentAgent) Upload(src, dst string) error {
 	err := r.SshClient.Upload(src, dst)
 	if err != nil {
-		log.Printf("Error uploading files to remote  src: %s dst: %s err: %s\n", src, dst, err.Error())
+		slog.Error("Error uploading files to remote", slog.String("src", src), slog.String("dst", dst), "error", err.Error())
 		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
 	}
 	return nil
@@ -168,7 +171,7 @@ func (r *RemoteAppDeploymentAgent) Upload(src, dst string) error {
 func (r *RemoteAppDeploymentAgent) UploadBin(src, dst string) error {
 	err := r.SshClient.Upload(src, dst)
 	if err != nil {
-		log.Printf("Error uploading files to remote  src: %s dst: %s err: %s\n", src, dst, err.Error())
+		slog.Error("Error uploading files to remote", slog.String("src", src), slog.String("dst", dst), "error", err.Error())
 		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
 	}
 	r.RunCommand("chmod", []string{"+x", dst})
@@ -178,7 +181,7 @@ func (r *RemoteAppDeploymentAgent) UploadBin(src, dst string) error {
 func (r *RemoteAppDeploymentAgent) Download(src, dst string) error {
 	err := r.SshClient.Download(src, dst)
 	if err != nil {
-		log.Printf("Error download files from remote  src: %s dst: %s err: %s\n", src, dst, err.Error())
+		slog.Error("Error download files from remote  dst: %s err: %s\n", slog.String("src", src), slog.String("dst", dst), "error", err.Error())
 		return SftpErrorWrapper(501, err, "error preforming upload over sftp")
 	}
 	return nil
@@ -187,7 +190,7 @@ func (r *RemoteAppDeploymentAgent) Download(src, dst string) error {
 func (r *RemoteAppDeploymentAgent) GetSftpClient() (*sftp.Client, error) {
 	sftpClient, err := r.SshClient.NewSftp()
 	if err != nil {
-		log.Printf("Error initializing sftp client err: %s\n", err.Error())
+		slog.Error("Error initializing sftp client", "error", err.Error())
 		return nil, SftpInitErrorWrapper(503, err, "error preforming upload over sftp")
 	}
 	return sftpClient, nil
@@ -196,11 +199,11 @@ func (r *RemoteAppDeploymentAgent) GetSftpClient() (*sftp.Client, error) {
 func (r *RemoteAppDeploymentAgent) WriteBytesSftp(destinationPath string, data []byte) (int, error) {
 	sftpClient, err := r.GetSftpClient()
 	if err != nil {
-		log.Printf("Error initializing sftp client err: %s\n", err.Error())
+		slog.Error("Error initializing sftp client", "error", err.Error())
 		return 0, SftpInitErrorWrapper(503, err, "error preforming upload over sftp")
 	}
 
-	log.Printf("Creating sftp client file: %s on remote host \n", destinationPath)
+	slog.Info("Creating sftp client on remote host", slog.String("destinationPath", destinationPath))
 	f, err := sftpClient.Create(destinationPath)
 	if err != nil {
 		return 0, SftpFileCreationErrorWrapper(504, err, "error creating file via sftp client")
@@ -212,7 +215,7 @@ func (r *RemoteAppDeploymentAgent) WriteBytesSftp(destinationPath string, data [
 		return 0, SftpFileCreationErrorWrapper(504, err, "error creating file via sftp client")
 	}
 
-	log.Printf("Finished writing file: %s bytes: %d remote host\n", destinationPath, bytesWritten)
+	slog.Info("Finished writing file: %s bytes: %d remote host", slog.String("file", destinationPath), slog.Int("bytesWritten", bytesWritten))
 	return bytesWritten, nil
 }
 
@@ -221,7 +224,7 @@ func (r *RemoteAppDeploymentAgent) RunCommand(remoteCmd string, args []string) e
 	// You can set env vars, but the server must be configured to `AcceptEnv line`.
 	cmd.Env = r.GetEnvarSlice()
 
-	log.Printf("Executing remote command cmd: %s args: %v\n", remoteCmd, args)
+	slog.Info("Executing remote command", slog.String("cmd", remoteCmd), slog.Any("args", args))
 	if err != nil {
 		slog.Error("error initializing goph Command", "error", err.Error())
 		return err
