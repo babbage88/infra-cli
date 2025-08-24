@@ -63,20 +63,19 @@ var clusterSsh = &cobra.Command{
 				wg.Add(1)
 				go func(user, host string) {
 					defer wg.Done()
-					agent, err := ssh.NewRemoteAppDeploymentAgentWithSshKey(
-						host, user, "", "",
+					client, err := ssh.InitializeSshClient(
+						host,
+						user,
 						rootViperCfg.GetString("ssh_key"),
 						rootViperCfg.GetString("ssh_passphrase"),
-						nil,
-						rootViperCfg.GetBool("ssh_use_agent"),
-						rootViperCfg.GetUint("ssh_port"),
-					)
+						rootViperCfg.GetBool("ssh_use_agent"), rootViperCfg.GetUint("ssh_port"))
+
 					if err != nil {
 						results <- fmt.Sprintf("[%s@%s] connection failed: %v", user, host, err)
 						return
 					}
 					args := strings.Fields(cmdToRun)
-					output, err := agent.RunCommandAndCaptureOutput(args[0], args[1:])
+					output, err := ssh.RunCommandAndCaptureOutput(client, args[0], args[1:])
 					if err != nil {
 						results <- fmt.Sprintf("[%s@%s] command error: %v", user, host, err)
 					} else {
