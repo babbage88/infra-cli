@@ -11,6 +11,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
+const defaultAppSchemaName string = "public"
+
+// need to add AppSchemaName as field, have it default to "public" when not defined.
 type PgSetupScriptsRequest struct {
 	DbHostName        string `json:"dbHostname"`
 	SuperuserUsername string `json:"superuserUsername"`
@@ -19,6 +22,19 @@ type PgSetupScriptsRequest struct {
 	ServiceUsername   string `json:"serviceUsername"`
 	ServicePassword   string `json:"servicePassword"`
 	DbPort            int32  `json:"dbPort"`
+	SchemaName        string `json:"schemaName"`
+}
+
+// Checks whether originalValue is an empty or blank string.
+//
+// if string is blank/empty it will be set to the defaultValue.
+// Returns originalValue if its not blank or empty.
+func validateStringWithDefaultValue(originalValue string, defaultValue string) string {
+	if len(strings.TrimSpace(originalValue)) == 0 {
+		return defaultValue
+	}
+
+	return originalValue
 }
 
 func GenerateDbUserScriptsHandler() func(w http.ResponseWriter, r *http.Request) {
@@ -44,13 +60,18 @@ func generateDbUserScriptsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// statically setting the schema name to the one I use for the dev deb, need to come back and make it a parameter whose value defaults to public
+	requestData.SchemaName = "public"
+
 	sqlScripts := GenerateSqlScript(requestData.DbHostName,
 		requestData.SuperuserUsername,
 		requestData.SuperuserPassword,
 		requestData.ServiceUsername,
 		requestData.ServicePassword,
 		requestData.DatabaseName,
-		requestData.DbPort)
+		requestData.DbPort,
+		requestData.SchemaName,
+	)
 
 	// Send the script back to the frontend
 	w.Header().Set("Content-Type", "application/json")
@@ -63,7 +84,8 @@ type PgDevDbSetupScriptsResponse struct {
 	AppDbSetupScript string `json:"pg_app_db.sql"`
 }
 
-func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername, appPass, appDbName string, dbPort int32) PgDevDbSetupScriptsResponse {
+func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername, appPass, appDbName string, dbPort int32, schemaName string) PgDevDbSetupScriptsResponse {
+	schemaName = validateStringWithDefaultValue(schemaName, defaultAppSchemaName)
 	var sqlScript strings.Builder
 	var appSqlScript strings.Builder
 	var shellScript strings.Builder
@@ -124,8 +146,6 @@ func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername
 	}
 	defer appdb.Close()
 
-	// statically setting the schema name to the one I use for the dev deb, need to come back and make it a parameter whose value defaults to public
-	schemaName := "public"
 	// defining raw string literal query up here first, so the tab formatting is less distracting when defining the appSqlStatemest slice
 	alterDefaultPrivsQry := fmt.Sprintf(`
 ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s

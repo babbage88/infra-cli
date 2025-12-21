@@ -20,7 +20,9 @@ func downloadDnUserScriptsHandler(w http.ResponseWriter, r *http.Request) {
 		requestData.ServiceUsername,
 		requestData.ServicePassword,
 		requestData.DatabaseName,
-		requestData.DbPort)
+		requestData.DbPort,
+		defaultAppSchemaName,
+	)
 
 	// Create zip buffer
 	buf := new(bytes.Buffer)
