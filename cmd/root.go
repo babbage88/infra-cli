@@ -6,7 +6,9 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
@@ -114,11 +116,19 @@ func initConfig() {
 }
 
 func GetConfigPath() string {
-	dirname, err := os.UserHomeDir()
+	dirname, err := os.UserConfigDir()
 	if err != nil {
-		pretty.PrintErrorf("error retrieving the current user's home dir. error: %s", err.Error())
+		curUser, err := user.Current()
+		if err != nil {
+			slog.Error("error looking up current user", "error", err.Error())
+		}
+		slog.Error("error retrieving the current user's home directory",
+			slog.String("error", err.Error()),
+			slog.Int("uid", os.Geteuid()),
+			slog.String("username", curUser.Username),
+		)
 	}
-	infractldotConfigDir := filepath.Join(dirname, ".config", "infractl")
+	infractldotConfigDir := filepath.Join(dirname, "infractl")
 	return infractldotConfigDir
 }
 

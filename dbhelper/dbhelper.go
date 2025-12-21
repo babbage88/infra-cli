@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	_ "github.com/lib/pq"
@@ -125,11 +124,33 @@ func GenerateSqlScript(dbHostname, superUsername, superUserPassword, appUsername
 	}
 	defer appdb.Close()
 
+	// statically setting the schema name to the one I use for the dev deb, need to come back and make it a parameter whose value defaults to public
+	schemaName := "public"
+	// defining raw string literal query up here first, so the tab formatting is less distracting when defining the appSqlStatemest slice
+	alterDefaultPrivsQry := fmt.Sprintf(`
+ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;`, appUsername, schemaName, appUsername)
+
+	appSqlStatements := []string{
+		// Allow user to look up objects in schema
+		fmt.Sprintf(`GRANT USAGE ON SCHEMA %s TO %s;`, schemaName, appUsername),
+		// Allows user to "look up" objects in the schema
+		fmt.Sprintf(`GRANT ALL ON SCHEMA %s TO %s;`, schemaName, appUsername),
+		// Set the appUsername value as owner of the application schema
+		fmt.Sprintf(`ALTER SCHEMA %s OWNER TO %s;`, schemaName, appUsername),
+		// Ensure that the appUsername will have proper privs on all new tables in the schema
+		alterDefaultPrivsQry,
+		// Grant all privs to existing tables
+		fmt.Sprintf(`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %s TO %s;`, schemaName, appUsername),
+		// Grant on sequences for tables with auto-incrementing IDs (e.g., serial or IDENTITY columns)
+		fmt.Sprintf(`GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %s TO %s;`, schemaName, appUsername),
+	}
+
 	appSqlScript.WriteString("/* ######### SQL Statements to execute while connected to the new application database ########## */\n")
-	appSqlScript.WriteString(fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, appUsername))
-	appSqlScript.WriteByte('\n')
-	appSqlScript.WriteString(fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, appUsername))
-	appSqlScript.WriteByte('\n')
+	for _, sqlStatement := range appSqlStatements {
+		appSqlScript.WriteString(sqlStatement)
+		appSqlScript.WriteByte('\n')
+	}
 
 	sqlScript.WriteString("/* ######### SQL Statements to execute while connected to the default postgres database ########## */\n")
 	sqlScript.WriteString(fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, appDbName, appUsername))
@@ -151,134 +172,4 @@ type PgDevDbExecStatement struct {
 type PgCreateDevDbAndUserResponse struct {
 	StatemensExecuted []PgDevDbExecStatement `json:"pdDevDbDeploymentStatements"`
 	Errors            []error                `json:"deploymentErrors"`
-}
-
-// Generates two postgres sql scripts, one to run while connected to the postgres db and one connected to the new appDb after it has been created.
-func generateSqlScriptAndExecute(dbHostname, superUsername, superUserPassword, appUsername, appPass, appDbName string, dbPort int16) string {
-	var sqlScript strings.Builder
-	var pgDb string = "postgres"
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", dbHostname, dbPort, superUsername, superUserPassword, pgDb)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		slog.Error("error connecting to database", slog.String("error", err.Error()))
-	}
-	defer db.Close()
-
-	var exists bool
-	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", appDbName).Scan(&exists)
-	if err != nil {
-		slog.Error("error checking if db exists to database", slog.String("error", err.Error()))
-	}
-
-	if exists {
-		slog.Info("Database already exists. Skipping creation", "appDbName", appDbName)
-	} else {
-
-		crtDbQry := fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, appDbName)
-		sqlScript.WriteString(crtDbQry)
-		sqlScript.WriteByte('\n')
-
-		_, err = db.Exec(crtDbQry)
-		if err != nil {
-			slog.Error("error checking if db exists to database", slog.String("error", err.Error()))
-		}
-		slog.Info("Database created", "New_Database", appDbName)
-	}
-
-	// Create user if it doesn't exist
-	var userExists bool
-	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = $1)", appUsername).Scan(&userExists)
-	if err != nil {
-		slog.Error("Failed while checking if user exists", slog.String("error", err.Error()))
-	}
-
-	if userExists {
-		slog.Info("User already exists. Altering password", "appUsername", appUsername)
-		altrUsrQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, appUsername, appPass)
-		sqlScript.WriteString(altrUsrQry)
-		sqlScript.WriteByte('\n')
-		_, err = db.Exec(altrUsrQry)
-		if err != nil {
-			slog.Error("Failed to alter appUsername password", slog.String("error", err.Error()))
-		}
-	} else {
-		crtUsrQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, appUsername)
-		sqlScript.WriteString(crtUsrQry)
-		sqlScript.WriteByte('\n')
-
-		altrPwQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, appUsername, appPass)
-		sqlScript.WriteString(altrPwQry)
-		sqlScript.WriteByte('\n')
-
-		_, err = db.Exec(crtUsrQry)
-		if err != nil {
-			slog.Error("Failed to create user", "error", err.Error())
-		}
-		_, err = db.Exec(altrPwQry)
-		if err != nil {
-			slog.Error("Failed to alter user", "error", err.Error())
-		}
-		slog.Info("User created", "New User", appUsername)
-
-	}
-
-	// Grant CONNECT on database (idempotent)
-	grantPrivsQry := fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, appDbName, appUsername)
-	sqlScript.WriteString(grantPrivsQry)
-	sqlScript.WriteByte('\n')
-
-	_, err = db.Exec(grantPrivsQry)
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		slog.Error("Failed to grant CONNECT", "error", err.Error())
-		os.Exit(1)
-	}
-
-	// Connect to target database
-	appDBConn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", dbHostname, dbPort, superUsername, superUserPassword, appDbName)
-	appdb, err := sql.Open("postgres", appDBConn)
-	if err != nil {
-		slog.Error("Failed to connect to target database", "error", err.Error())
-		os.Exit(1)
-	}
-	defer appdb.Close()
-
-	sqlStatements := []string{
-		// Need to revisit exact required permissions, but this works for development purposes...at least it's better that just creating a super user.
-		fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, appUsername),
-		fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, appUsername),
-	}
-
-	pgStatements := []string{
-		// Grant access to all current tables
-		fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, appDbName, appUsername),
-	}
-
-	sqlScript.WriteString("/* ######### SQL Statements to execute while connected to the new application database ########## */")
-	sqlScript.WriteByte('\n')
-
-	for _, stmt := range sqlStatements {
-		sqlScript.WriteString(stmt)
-		sqlScript.WriteByte('\n')
-
-		slog.Info("Executing SQL", "Query", stmt)
-		if _, err := appdb.Exec(stmt); err != nil {
-			slog.Error("Failed executing statement", slog.String("Query", stmt), slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	}
-
-	sqlScript.WriteString("/* ######### SQL Statements to execute while connected to the default postgres database ########## */")
-	sqlScript.WriteByte('\n')
-
-	for _, stmt := range pgStatements {
-		sqlScript.WriteString(stmt)
-		sqlScript.WriteByte('\n')
-		slog.Info("Executing SQL", "Query", stmt)
-		if _, err := db.Exec(stmt); err != nil {
-			slog.Error("Failed executing statement", slog.String("Query", stmt), slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	}
-
-	return sqlScript.String()
 }

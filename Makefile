@@ -5,6 +5,7 @@ BIN_NAME:=infractl
 ARTIFACT:=$(ARTIFACT_DIR)/$(BIN_NAME)
 DEFAULT_CFG_FILE:=default.yaml
 DEFUALT_CONFIG_DIR:=~/.config/infractl
+PVE_CONFIG_FILE:=pve.yaml
 MAIN_BRANCH:=master
 VERSION_TYPE:=patch
 #INSTALL_PATH:=$${GOPATH}/bin
@@ -59,6 +60,8 @@ install: build
 	@mkdir -p $(DEFUALT_CONFIG_DIR)
 	@echo "[INFO] Copying default config file: $(DEFAULT_CFG_FILE) to $(DEFUALT_CONFIG_DIR)"
 	@cp $(DEFAULT_CFG_FILE) $(DEFUALT_CONFIG_DIR)
+	@echo "[INFO] Copying default pve config file: $(PVE_CONFIG_FILE) to $(DEFUALT_CONFIG_DIR)"
+	@cp $(PVE_CONFIG_FILE) $(DEFUALT_CONFIG_DIR)
 	@echo "[INFO] moving release artifact: $(ARTIFACT) to $(INSTALL_PATH)/$(BIN_NAME)"
 	@mv $(ARTIFACT) $(INSTALL_PATH)/$(BIN_NAME)
 

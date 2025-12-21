@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/babbage88/infra-cli/internal/pretty"
@@ -13,6 +14,17 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+func getDefaultPveConfigFile() string {
+	userCfgPath, err := os.UserConfigDir()
+	if err != nil {
+		slog.Error("error retrieving default config dir", "error", err.Error())
+		os.Exit(1)
+	}
+
+	pveDefaultConfigFilePath := filepath.Join(userCfgPath, "infractl/pve.yaml")
+	return pveDefaultConfigFilePath
+}
 
 var proxmoxVmListCmd = &cobra.Command{
 	Use:   "list",
