@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/lib/pq"
+	"golang.org/x/term"
 )
 
 // expandPath expands ~ to the user's home directory
@@ -105,6 +107,125 @@ func currentUserName() string {
 	return "root"
 }
 
+func defaultSSHKeyPath() string {
+	for _, candidate := range []string{"~/.ssh/id_ed25519", "~/.ssh/id_rsa"} {
+		expanded := expandPath(candidate)
+		if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
+			return expanded
+		}
+	}
+
+	return ""
+}
+
+func promptInput(label, defaultValue string) string {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		if defaultValue != "" {
+			fmt.Printf("%s [%s]: ", label, defaultValue)
+		} else {
+			fmt.Printf("%s: ", label)
+		}
+
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Error("Failed to read input", "error", err.Error())
+			os.Exit(1)
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" && defaultValue != "" {
+			return defaultValue
+		}
+		if input != "" {
+			return input
+		}
+	}
+}
+
+func promptPassword(label, defaultValue string) string {
+	for {
+		if defaultValue != "" {
+			fmt.Printf("%s [press enter to use current default]: ", label)
+		} else {
+			fmt.Printf("%s: ", label)
+		}
+
+		var input string
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err != nil {
+				slog.Error("Failed to read password", "error", err.Error())
+				os.Exit(1)
+			}
+			input = strings.TrimSpace(string(raw))
+		} else {
+			reader := bufio.NewReader(os.Stdin)
+			raw, err := reader.ReadString('\n')
+			if err != nil {
+				slog.Error("Failed to read password", "error", err.Error())
+				os.Exit(1)
+			}
+			input = strings.TrimSpace(raw)
+		}
+
+		if input == "" && defaultValue != "" {
+			return defaultValue
+		}
+		if input != "" {
+			return input
+		}
+	}
+}
+
+func promptForMissingAppConfig(cmd *cobra.Command, dbExists bool, dbname, username, password string) (string, string, string) {
+	if !dbExists && !cmd.Flags().Changed("db-name") {
+		dbname = promptInput("Database name", dbname)
+	}
+	if !dbExists && !cmd.Flags().Changed("db-user") {
+		username = promptInput("Database user", username)
+	}
+	if !dbExists && !cmd.Flags().Changed("db-password") {
+		password = promptPassword("Database password", password)
+	}
+
+	return dbname, username, password
+}
+
+func dropAndRecreateDatabaseViaSSH(sshClient *goph.Client, pgUser, dbname string) error {
+	statements := []string{
+		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid();`, pq.QuoteLiteral(dbname)),
+		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, pq.QuoteIdentifier(dbname)),
+		fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`, pq.QuoteIdentifier(dbname), pq.QuoteLiteral("UTF8")),
+	}
+
+	for _, stmt := range statements {
+		if err := execSQLViaSsh(sshClient, pgUser, "postgres", stmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func dropAndRecreateDatabaseDirect(db *sql.DB, dbname string) error {
+	statements := []string{
+		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid();`, pq.QuoteLiteral(dbname)),
+		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, pq.QuoteIdentifier(dbname)),
+		fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`, pq.QuoteIdentifier(dbname), pq.QuoteLiteral("UTF8")),
+	}
+
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 var newAppDBCmd = &cobra.Command{
 	Use:   "new-appdb",
 	Short: "Create a new PostgreSQL database and service user for an application",
@@ -113,6 +234,7 @@ var newAppDBCmd = &cobra.Command{
 		username := viper.GetString("db_user")
 		password := viper.GetString("db_password")
 		createDB := viper.GetBool("create_db")
+		dropFirst := viper.GetBool("drop_first")
 		pgHostname := viper.GetString("postgres_host")
 		pgPort := viper.GetInt("postgres_port")
 		pgUser := viper.GetString("postgres_user")
@@ -125,6 +247,14 @@ var newAppDBCmd = &cobra.Command{
 		sshPassphrase := viper.GetString("ssh_passphrase")
 		useSshAgent := viper.GetBool("ssh_agent")
 		sshPort := viper.GetInt("ssh_port")
+
+		if dropFirst {
+			createDB = true
+		}
+
+		if sshKey == "" {
+			sshKey = defaultSSHKeyPath()
+		}
 
 		// SSH-based execution path
 		if connectSSH {
@@ -151,11 +281,27 @@ var newAppDBCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			if createDB {
+			dbname, username, password = promptForMissingAppConfig(cmd, dbExists, dbname, username, password)
+			if !cmd.Flags().Changed("db-name") && dbname != "" {
+				checkStmt = fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = %s)", pq.QuoteLiteral(dbname))
+				dbExists, err = execSQLViaSshBool(sshClient, pgUser, "postgres", checkStmt)
+				if err != nil {
+					slog.Error("Failed to re-check if database exists via SSH", "error", err.Error())
+					os.Exit(1)
+				}
+			}
+
+			if createDB && dropFirst {
+				if err := dropAndRecreateDatabaseViaSSH(sshClient, pgUser, dbname); err != nil {
+					slog.Error("Failed to drop and recreate database via SSH", "error", err.Error())
+					os.Exit(1)
+				}
+				slog.Info("Database dropped and recreated", "DbName", dbname)
+				dbExists = true
+			} else if createDB {
 				if dbExists {
 					slog.Info("Database already exists. Skipping creation", "DbName", dbname)
 				} else {
-					// Create database
 					createStmt := fmt.Sprintf(
 						`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
 						pq.QuoteIdentifier(dbname),
@@ -237,15 +383,32 @@ var newAppDBCmd = &cobra.Command{
 		}
 		defer db.Close()
 
-		if createDB {
-			var exists bool
-			err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&exists)
+		var dbExists bool
+		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&dbExists)
+		if err != nil {
+			slog.Error("Failed to check if database exists", "error", err.Error())
+			os.Exit(1)
+		}
+
+		dbname, username, password = promptForMissingAppConfig(cmd, dbExists, dbname, username, password)
+		if !cmd.Flags().Changed("db-name") && dbname != "" {
+			err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&dbExists)
 			if err != nil {
-				slog.Error("Failed to check if database exists", "error", err.Error())
+				slog.Error("Failed to re-check if database exists", "error", err.Error())
 				os.Exit(1)
 			}
+		}
 
-			if exists {
+		if createDB && dropFirst {
+			err = dropAndRecreateDatabaseDirect(db, dbname)
+			if err != nil {
+				slog.Error("Failed to drop and recreate database", "error", err.Error())
+				os.Exit(1)
+			}
+			slog.Info("Database dropped and recreated", "DbName", dbname)
+			dbExists = true
+		} else if createDB {
+			if dbExists {
 				slog.Info("Database already exists. Skipping creation", "DbName", dbname)
 			} else {
 				_, err = db.Exec(fmt.Sprintf(
@@ -257,6 +420,7 @@ var newAppDBCmd = &cobra.Command{
 					slog.Error("Failed to create database", "error", err.Error())
 				}
 				slog.Info("Database created", "DbName", dbname)
+				dbExists = true
 			}
 		}
 
@@ -289,6 +453,11 @@ var newAppDBCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			slog.Info("User created", "username", username)
+		}
+
+		if !dbExists {
+			slog.Error("Target database does not exist. Re-run with --create-db or specify an existing --db-name", "DbName", dbname)
+			os.Exit(1)
 		}
 
 		// Grant CONNECT on database (idempotent)
@@ -355,6 +524,7 @@ func init() {
 	newAppDBCmd.Flags().String("db-user", "smbp_user", "Service user name to create")
 	newAppDBCmd.Flags().String("db-password", "changeMe123", "Password for the service user")
 	newAppDBCmd.Flags().Bool("create-db", false, "Create the database if it doesn't exist")
+	newAppDBCmd.Flags().Bool("drop-first", false, "Drop and recreate the application database before applying grants")
 	newAppDBCmd.Flags().String("postgres-password", "", "PostgreSQL superuser password")
 	newAppDBCmd.Flags().String("postgres-user", "postgres", "PostgreSQL admin username")
 	newAppDBCmd.Flags().String("postgres-hostname", "localhost", "PostgreSQL server hostname")
@@ -372,6 +542,7 @@ func init() {
 	viper.BindPFlag("db_user", newAppDBCmd.Flags().Lookup("db-user"))
 	viper.BindPFlag("db_password", newAppDBCmd.Flags().Lookup("db-password"))
 	viper.BindPFlag("create_db", newAppDBCmd.Flags().Lookup("create-db"))
+	viper.BindPFlag("drop_first", newAppDBCmd.Flags().Lookup("drop-first"))
 	viper.BindPFlag("postgres_password", newAppDBCmd.Flags().Lookup("postgres-password"))
 	viper.BindPFlag("postgres_user", newAppDBCmd.Flags().Lookup("postgres-user"))
 	viper.BindPFlag("postgres_host", newAppDBCmd.Flags().Lookup("postgres-hostname"))
