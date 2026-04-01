@@ -45,7 +45,7 @@ func init() {
 
 	databaseCmd.AddCommand(databaseInstallPgCmd)
 	databaseInstallPgCmd.Flags().StringVar(&newPgPass, "postgres-password", "", "The password to set for the postgres user.")
-	databaseInstallPgCmd.Flags().StringVar(&RemoteHostName, "hostname", "", "Remote hostname8 to install postgres.")
+	databaseInstallPgCmd.Flags().StringVar(&RemoteHostName, "hostname", "", "Remote hostname to install postgres.")
 
 	pgInstallViper.BindPFlag("postgres_password", databaseInstallPgCmd.Flags().Lookup("postgres-password"))
 	pgInstallViper.BindPFlag("pg_hostname", databaseInstallPgCmd.Flags().Lookup("hostname"))
