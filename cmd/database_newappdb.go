@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/babbage88/goph/v2"
@@ -14,6 +15,18 @@ import (
 
 	_ "github.com/lib/pq"
 )
+
+// expandPath expands ~ to the user's home directory
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
 
 // execSQLViaSsh executes a SQL statement on a remote PostgreSQL instance via SSH with sudo
 func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
@@ -42,7 +55,7 @@ var newAppDBCmd = &cobra.Command{
 		connectSSH := viper.GetBool("connect_ssh")
 		sshHost := viper.GetString("ssh_host")
 		sshUser := viper.GetString("ssh_user")
-		sshKey := viper.GetString("ssh_key")
+		sshKey := expandPath(viper.GetString("ssh_key"))
 		sshPassphrase := viper.GetString("ssh_passphrase")
 		useSshAgent := viper.GetBool("ssh_agent")
 		sshPort := viper.GetInt("ssh_port")
