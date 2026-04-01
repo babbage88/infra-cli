@@ -2,12 +2,12 @@ package ssh
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
-	"os"
 
 	"github.com/babbage88/goph/v2"
-	"golang.org/x/crypto/ssh"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 type RemoteAppDeploymentAgent struct {
@@ -18,7 +18,7 @@ type RemoteAppDeploymentAgent struct {
 	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
-func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
+func VerifyHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
 	//
 	// If you want to connect to new hosts.
 	// here your should check new connections public keys
@@ -51,22 +51,9 @@ func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
 }
 
 func initializeSshClient(host string, user string, port uint, sshKeyPath string, sshPassphrase string, agent bool) (*goph.Client, error) {
-	var auth goph.Auth
-	var err error
-	if agent || goph.HasAgent() {
-		auth, err = goph.UseAgent()
-		if err != nil {
-			slog.Error(err.Error())
-			os.Exit(1)
-		}
-
-	} else {
-		auth, err = goph.Key(sshKeyPath, sshPassphrase)
-	}
-
+	auth, err := buildSSHAuthMethods(sshKeyPath, sshPassphrase, agent)
 	if err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
+		return nil, err
 	}
 
 	client, err := goph.NewConn(&goph.Config{
@@ -74,14 +61,47 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 		Addr:     host,
 		Port:     port,
 		Auth:     auth,
+		Timeout:  goph.DefaultTimeout,
 		Callback: VerifyHost,
 	})
 	if err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
+		return nil, err
 	}
 	// Defer closing the network connection.
 	return client, err
+}
+
+func buildSSHAuthMethods(sshKeyPath string, sshPassphrase string, useAgent bool) (goph.Auth, error) {
+	authMethods := make(goph.Auth, 0, 2)
+
+	if sshKeyPath != "" {
+		keyAuth, err := goph.Key(sshKeyPath, sshPassphrase)
+		if err != nil {
+			return nil, fmt.Errorf("load SSH key %q: %w", sshKeyPath, err)
+		}
+		authMethods = append(authMethods, keyAuth...)
+	}
+
+	shouldUseAgent := useAgent || (sshKeyPath == "" && goph.HasAgent())
+	if shouldUseAgent {
+		agentAuth, err := goph.UseAgent()
+		if err != nil {
+			if useAgent && sshKeyPath == "" {
+				return nil, fmt.Errorf("use ssh agent: %w", err)
+			}
+			if useAgent {
+				slog.Warn("SSH agent unavailable, continuing with SSH key authentication", "error", err.Error())
+			}
+		} else {
+			authMethods = append(authMethods, agentAuth...)
+		}
+	}
+
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("no SSH authentication method configured; provide --ssh-key or enable ssh-agent")
+	}
+
+	return authMethods, nil
 }
 
 func InitializeSshClient(hostname, username, sshKey, sshPassphrase string, useAgent bool, port uint) (*goph.Client, error) {

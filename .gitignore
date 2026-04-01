@@ -52,3 +52,4 @@ go.work.sum
 # env file
 .env
 hostnames.yaml
+.gocache/

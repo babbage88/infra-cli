@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 // expandPath expands ~ to the user's home directory
@@ -30,13 +31,78 @@ func expandPath(path string) string {
 
 // execSQLViaSsh executes a SQL statement on a remote PostgreSQL instance via SSH with sudo
 func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
-	// Build the command that sudos to postgres user and runs psql
-	cmdStr := fmt.Sprintf("sudo -u %s psql -d %s -c '%s'", pgUser, dbname, stmt)
+	cmdStr := buildRemotePsqlCommand(pgUser, dbname, stmt, false)
 
-	if _, err := sshClient.Run(cmdStr); err != nil {
-		return fmt.Errorf("SSH execution failed: %w", err)
+	out, err := sshClient.Run(cmdStr)
+	if err != nil {
+		return formatSSHExecError(err, out)
 	}
 	return nil
+}
+
+func execSQLViaSshBool(sshClient *goph.Client, pgUser, dbname, stmt string) (bool, error) {
+	cmdStr := buildRemotePsqlCommand(pgUser, dbname, stmt, true)
+
+	out, err := sshClient.Run(cmdStr)
+	if err != nil {
+		return false, formatSSHExecError(err, out)
+	}
+
+	switch strings.TrimSpace(string(out)) {
+	case "t", "true", "1":
+		return true, nil
+	case "f", "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected boolean query result: %q", strings.TrimSpace(string(out)))
+	}
+}
+
+func buildRemotePsqlCommand(pgUser, dbname, stmt string, tuplesOnly bool) string {
+	args := []string{
+		"sudo", "-u", pgUser,
+		"psql",
+		"-v", "ON_ERROR_STOP=1",
+		"-d", dbname,
+	}
+
+	if tuplesOnly {
+		args = append(args, "-tA")
+	}
+
+	args = append(args, "-c", stmt)
+
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuote(arg))
+	}
+
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func formatSSHExecError(err error, out []byte) error {
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return fmt.Errorf("SSH execution failed: %w", err)
+	}
+	return fmt.Errorf("SSH execution failed: %w: %s", err, output)
+}
+
+func currentUserName() string {
+	if username := os.Getenv("USER"); username != "" {
+		return username
+	}
+
+	curUser, err := user.Current()
+	if err == nil && curUser.Username != "" {
+		return curUser.Username
+	}
+
+	return "root"
 }
 
 var newAppDBCmd = &cobra.Command{
@@ -67,10 +133,7 @@ var newAppDBCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			if sshUser == "" {
-				sshUser = viper.GetString("USER")
-				if sshUser == "" {
-					sshUser = "root"
-				}
+				sshUser = currentUserName()
 			}
 
 			// Initialize SSH client
@@ -81,38 +144,53 @@ var newAppDBCmd = &cobra.Command{
 			}
 			defer sshClient.Close()
 
+			checkStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = %s)", pq.QuoteLiteral(dbname))
+			dbExists, err := execSQLViaSshBool(sshClient, pgUser, "postgres", checkStmt)
+			if err != nil {
+				slog.Error("Failed to check if database exists via SSH", "error", err.Error())
+				os.Exit(1)
+			}
+
 			if createDB {
-				// Check if database exists
-				checkStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = '%s')", dbname)
-				if err := execSQLViaSsh(sshClient, pgUser, "postgres", checkStmt); err == nil {
+				if dbExists {
 					slog.Info("Database already exists. Skipping creation", "DbName", dbname)
 				} else {
 					// Create database
-					createStmt := fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, dbname)
+					createStmt := fmt.Sprintf(
+						`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
+						pq.QuoteIdentifier(dbname),
+						pq.QuoteLiteral("UTF8"),
+					)
 					if err := execSQLViaSsh(sshClient, pgUser, "postgres", createStmt); err != nil {
 						slog.Error("Failed to create database via SSH", "error", err.Error())
 						os.Exit(1)
 					}
 					slog.Info("Database created", "DbName", dbname)
+					dbExists = true
 				}
 			}
 
 			// Create or alter user if SSH-based
-			userCheckStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = '%s')", username)
-			if err := execSQLViaSsh(sshClient, pgUser, "postgres", userCheckStmt); err == nil {
+			userCheckStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = %s)", pq.QuoteLiteral(username))
+			userExists, err := execSQLViaSshBool(sshClient, pgUser, "postgres", userCheckStmt)
+			if err != nil {
+				slog.Error("Failed to check if user exists via SSH", "error", err.Error())
+				os.Exit(1)
+			}
+			if userExists {
 				slog.Info("User already exists. Altering password", "username", username)
-				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
+				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD %s;`, pq.QuoteIdentifier(username), pq.QuoteLiteral(password))
 				if err := execSQLViaSsh(sshClient, pgUser, "postgres", alterPwStmt); err != nil {
 					slog.Error("Failed to alter user password via SSH", "error", err.Error())
 					os.Exit(2)
 				}
 			} else {
-				createRoleStmt := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, username)
+				createRoleStmt := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, pq.QuoteIdentifier(username))
 				if err := execSQLViaSsh(sshClient, pgUser, "postgres", createRoleStmt); err != nil {
 					slog.Error("Failed to create user via SSH", "error", err.Error())
 					os.Exit(1)
 				}
-				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
+				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD %s;`, pq.QuoteIdentifier(username), pq.QuoteLiteral(password))
 				if err := execSQLViaSsh(sshClient, pgUser, "postgres", alterPwStmt); err != nil {
 					slog.Error("Failed to alter user via SSH", "error", err.Error())
 					os.Exit(1)
@@ -120,8 +198,13 @@ var newAppDBCmd = &cobra.Command{
 				slog.Info("User created", "username", username)
 			}
 
+			if !dbExists {
+				slog.Error("Target database does not exist. Re-run with --create-db or specify an existing --db-name", "DbName", dbname)
+				os.Exit(1)
+			}
+
 			// Grant database privileges
-			grantDbStmt := fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username)
+			grantDbStmt := fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, pq.QuoteIdentifier(dbname), pq.QuoteIdentifier(username))
 			if err := execSQLViaSsh(sshClient, pgUser, "postgres", grantDbStmt); err != nil {
 				slog.Error("Failed to grant database privileges via SSH", "error", err.Error())
 				os.Exit(1)
@@ -129,8 +212,8 @@ var newAppDBCmd = &cobra.Command{
 
 			// Execute schema-level statements
 			schemaStatements := []string{
-				fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
-				fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, username),
+				fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, pq.QuoteIdentifier(username)),
+				fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, pq.QuoteIdentifier(username)),
 			}
 
 			for _, stmt := range schemaStatements {
@@ -163,9 +246,13 @@ var newAppDBCmd = &cobra.Command{
 			}
 
 			if exists {
-				slog.Error("Database %s already exists. Skipping creation", slog.String("DbName", dbname), slog.String("error", err.Error()))
+				slog.Info("Database already exists. Skipping creation", "DbName", dbname)
 			} else {
-				_, err = db.Exec(fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, dbname))
+				_, err = db.Exec(fmt.Sprintf(
+					`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
+					pq.QuoteIdentifier(dbname),
+					pq.QuoteLiteral("UTF8"),
+				))
 				if err != nil {
 					slog.Error("Failed to create database", "error", err.Error())
 				}
@@ -183,14 +270,14 @@ var newAppDBCmd = &cobra.Command{
 
 		if userExists {
 			slog.Info("User already exists. Altering password", "username", username)
-			_, err = db.Exec(fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password))
+			_, err = db.Exec(fmt.Sprintf(`ALTER USER %s WITH PASSWORD %s;`, pq.QuoteIdentifier(username), pq.QuoteLiteral(password)))
 			if err != nil {
 				slog.Error("Failed to alter user password", "error", err.Error())
 				os.Exit(2)
 			}
 		} else {
-			crtQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, username)
-			altrPwQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
+			crtQry := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, pq.QuoteIdentifier(username))
+			altrPwQry := fmt.Sprintf(`ALTER USER %s WITH PASSWORD %s;`, pq.QuoteIdentifier(username), pq.QuoteLiteral(password))
 			_, err = db.Exec(crtQry)
 			if err != nil {
 				slog.Error("Failed to create user", "error", err.Error())
@@ -205,7 +292,7 @@ var newAppDBCmd = &cobra.Command{
 		}
 
 		// Grant CONNECT on database (idempotent)
-		_, err = db.Exec(fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username))
+		_, err = db.Exec(fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, pq.QuoteIdentifier(dbname), pq.QuoteIdentifier(username)))
 		if err != nil && !strings.Contains(err.Error(), "already exists") {
 			slog.Error("Failed to grant CONNECT", "error", err.Error())
 			os.Exit(1)
@@ -222,8 +309,8 @@ var newAppDBCmd = &cobra.Command{
 
 		sqlStatements := []string{
 			// Need to revisit exact required permissions, but this works for development purposes...at least it's better that just creating a super user.
-			fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, username),
-			fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, username),
+			fmt.Sprintf(`GRANT ALL ON SCHEMA public TO %s;`, pq.QuoteIdentifier(username)),
+			fmt.Sprintf(`ALTER SCHEMA public OWNER TO %s;`, pq.QuoteIdentifier(username)),
 			// Grant permissions to the schema
 			//fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s;`, username),
 			//fmt.Sprintf(`GRANT CREATE ON SCHEMA public TO %s;`, username),
@@ -240,7 +327,7 @@ var newAppDBCmd = &cobra.Command{
 
 		pgStatements := []string{
 			// Grant access to all current tables
-			fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username),
+			fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, pq.QuoteIdentifier(dbname), pq.QuoteIdentifier(username)),
 		}
 
 		for _, stmt := range sqlStatements {
