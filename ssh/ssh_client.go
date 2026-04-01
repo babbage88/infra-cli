@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 
 	"github.com/babbage88/goph/v2"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -72,21 +74,22 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 }
 
 func buildSSHAuthMethods(sshKeyPath string, sshPassphrase string, useAgent bool) (goph.Auth, error) {
-	authMethods := make(goph.Auth, 0, 2)
+	keyPaths := resolveSSHKeyPaths(sshKeyPath)
+	authMethods := make(goph.Auth, 0, len(keyPaths)+1)
 
-	if sshKeyPath != "" {
-		keyAuth, err := goph.Key(sshKeyPath, sshPassphrase)
+	for _, keyPath := range keyPaths {
+		keyAuth, err := goph.Key(keyPath, sshPassphrase)
 		if err != nil {
-			return nil, fmt.Errorf("load SSH key %q: %w", sshKeyPath, err)
+			return nil, fmt.Errorf("load SSH key %q: %w", keyPath, err)
 		}
 		authMethods = append(authMethods, keyAuth...)
 	}
 
-	shouldUseAgent := useAgent || (sshKeyPath == "" && goph.HasAgent())
+	shouldUseAgent := useAgent || goph.HasAgent()
 	if shouldUseAgent {
 		agentAuth, err := goph.UseAgent()
 		if err != nil {
-			if useAgent && sshKeyPath == "" {
+			if useAgent && len(keyPaths) == 0 {
 				return nil, fmt.Errorf("use ssh agent: %w", err)
 			}
 			if useAgent {
@@ -102,6 +105,27 @@ func buildSSHAuthMethods(sshKeyPath string, sshPassphrase string, useAgent bool)
 	}
 
 	return authMethods, nil
+}
+
+func resolveSSHKeyPaths(explicitPath string) []string {
+	if explicitPath != "" {
+		return []string{explicitPath}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return nil
+	}
+
+	var keyPaths []string
+	for _, name := range []string{"id_ed25519", "id_rsa"} {
+		candidate := filepath.Join(homeDir, ".ssh", name)
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			keyPaths = append(keyPaths, candidate)
+		}
+	}
+
+	return keyPaths
 }
 
 func InitializeSshClient(hostname, username, sshKey, sshPassphrase string, useAgent bool, port uint) (*goph.Client, error) {

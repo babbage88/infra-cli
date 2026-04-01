@@ -180,14 +180,14 @@ func promptPassword(label, defaultValue string) string {
 	}
 }
 
-func promptForMissingAppConfig(cmd *cobra.Command, dbExists bool, dbname, username, password string) (string, string, string) {
-	if !dbExists && !cmd.Flags().Changed("db-name") {
+func promptForMissingAppConfig(cmd *cobra.Command, dbname, username, password string) (string, string, string) {
+	if !cmd.Flags().Changed("db-name") {
 		dbname = promptInput("Database name", dbname)
 	}
-	if !dbExists && !cmd.Flags().Changed("db-user") {
+	if !cmd.Flags().Changed("db-user") {
 		username = promptInput("Database user", username)
 	}
-	if !dbExists && !cmd.Flags().Changed("db-password") {
+	if !cmd.Flags().Changed("db-password") {
 		password = promptPassword("Database password", password)
 	}
 
@@ -269,26 +269,26 @@ var newAppDBCmd = &cobra.Command{
 			// Initialize SSH client
 			sshClient, err := ssh.InitializeSshClient(sshHost, sshUser, sshKey, sshPassphrase, useSshAgent, uint(sshPort))
 			if err != nil {
-				slog.Error("Failed to initialize SSH client", "error", err.Error())
+				slog.Error(
+					"Failed to initialize SSH client",
+					"host", sshHost,
+					"user", sshUser,
+					"port", sshPort,
+					"ssh_key", sshKey,
+					"use_ssh_agent", useSshAgent,
+					"error", err.Error(),
+				)
 				os.Exit(1)
 			}
 			defer sshClient.Close()
+
+			dbname, username, password = promptForMissingAppConfig(cmd, dbname, username, password)
 
 			checkStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = %s)", pq.QuoteLiteral(dbname))
 			dbExists, err := execSQLViaSshBool(sshClient, pgUser, "postgres", checkStmt)
 			if err != nil {
 				slog.Error("Failed to check if database exists via SSH", "error", err.Error())
 				os.Exit(1)
-			}
-
-			dbname, username, password = promptForMissingAppConfig(cmd, dbExists, dbname, username, password)
-			if !cmd.Flags().Changed("db-name") && dbname != "" {
-				checkStmt = fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = %s)", pq.QuoteLiteral(dbname))
-				dbExists, err = execSQLViaSshBool(sshClient, pgUser, "postgres", checkStmt)
-				if err != nil {
-					slog.Error("Failed to re-check if database exists via SSH", "error", err.Error())
-					os.Exit(1)
-				}
 			}
 
 			if createDB && dropFirst {
@@ -383,20 +383,13 @@ var newAppDBCmd = &cobra.Command{
 		}
 		defer db.Close()
 
+		dbname, username, password = promptForMissingAppConfig(cmd, dbname, username, password)
+
 		var dbExists bool
 		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&dbExists)
 		if err != nil {
 			slog.Error("Failed to check if database exists", "error", err.Error())
 			os.Exit(1)
-		}
-
-		dbname, username, password = promptForMissingAppConfig(cmd, dbExists, dbname, username, password)
-		if !cmd.Flags().Changed("db-name") && dbname != "" {
-			err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", dbname).Scan(&dbExists)
-			if err != nil {
-				slog.Error("Failed to re-check if database exists", "error", err.Error())
-				os.Exit(1)
-			}
 		}
 
 		if createDB && dropFirst {
@@ -520,9 +513,9 @@ var newAppDBCmd = &cobra.Command{
 }
 
 func init() {
-	newAppDBCmd.Flags().String("db-name", "smbplusplus", "Name of the database to create/configure")
-	newAppDBCmd.Flags().String("db-user", "smbp_user", "Service user name to create")
-	newAppDBCmd.Flags().String("db-password", "changeMe123", "Password for the service user")
+	newAppDBCmd.Flags().String("db-name", "", "Name of the database to create/configure")
+	newAppDBCmd.Flags().String("db-user", "", "Service user name to create")
+	newAppDBCmd.Flags().String("db-password", "", "Password for the service user")
 	newAppDBCmd.Flags().Bool("create-db", false, "Create the database if it doesn't exist")
 	newAppDBCmd.Flags().Bool("drop-first", false, "Drop and recreate the application database before applying grants")
 	newAppDBCmd.Flags().String("postgres-password", "", "PostgreSQL superuser password")

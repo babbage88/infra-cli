@@ -41,11 +41,46 @@ func TestBuildSSHAuthMethodsFallsBackToKeyWhenAgentRequestedButUnavailable(t *te
 }
 
 func TestBuildSSHAuthMethodsErrorsWithoutKeyOrAgent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	_, err := buildSSHAuthMethods("", "", false)
 	if err == nil {
 		t.Fatal("expected an error when no key or agent is configured")
+	}
+}
+
+func TestBuildSSHAuthMethodsUsesAutoDiscoveredDefaultKey(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		t.Fatalf("create .ssh dir: %v", err)
+	}
+
+	keyPath := filepath.Join(sshDir, "id_rsa")
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+	if err := os.WriteFile(keyPath, privateKeyPEM, 0600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+
+	auth, err := buildSSHAuthMethods("", "", false)
+	if err != nil {
+		t.Fatalf("expected auto-discovered key auth to succeed, got error: %v", err)
+	}
+
+	if len(auth) != 1 {
+		t.Fatalf("expected exactly one auth method from auto-discovered key, got %d", len(auth))
 	}
 }
 
