@@ -180,6 +180,32 @@ func promptPassword(label, defaultValue string) string {
 	}
 }
 
+func promptYesNo(label string, defaultYes bool) bool {
+	reader := bufio.NewReader(os.Stdin)
+	defaultLabel := "y/N"
+	if defaultYes {
+		defaultLabel = "Y/n"
+	}
+
+	for {
+		fmt.Printf("%s [%s]: ", label, defaultLabel)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Error("Failed to read input", "error", err.Error())
+			os.Exit(1)
+		}
+
+		switch strings.ToLower(strings.TrimSpace(input)) {
+		case "":
+			return defaultYes
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		}
+	}
+}
+
 func promptForMissingAppConfig(cmd *cobra.Command, dbname, username, password string) (string, string, string) {
 	if !cmd.Flags().Changed("db-name") {
 		dbname = promptInput("Database name", dbname)
@@ -345,8 +371,22 @@ var newAppDBCmd = &cobra.Command{
 			}
 
 			if !dbExists {
-				slog.Error("Target database does not exist. Re-run with --create-db or specify an existing --db-name", "DbName", dbname)
-				os.Exit(1)
+				if promptYesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
+					createStmt := fmt.Sprintf(
+						`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
+						pq.QuoteIdentifier(dbname),
+						pq.QuoteLiteral("UTF8"),
+					)
+					if err := execSQLViaSsh(sshClient, pgUser, "postgres", createStmt); err != nil {
+						slog.Error("Failed to create database via SSH", "error", err.Error())
+						os.Exit(1)
+					}
+					slog.Info("Database created", "DbName", dbname)
+					dbExists = true
+				} else {
+					slog.Error("Target database does not exist", "DbName", dbname)
+					os.Exit(1)
+				}
 			}
 
 			// Grant database privileges
@@ -449,8 +489,22 @@ var newAppDBCmd = &cobra.Command{
 		}
 
 		if !dbExists {
-			slog.Error("Target database does not exist. Re-run with --create-db or specify an existing --db-name", "DbName", dbname)
-			os.Exit(1)
+			if promptYesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
+				_, err = db.Exec(fmt.Sprintf(
+					`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
+					pq.QuoteIdentifier(dbname),
+					pq.QuoteLiteral("UTF8"),
+				))
+				if err != nil {
+					slog.Error("Failed to create database", "error", err.Error())
+					os.Exit(1)
+				}
+				slog.Info("Database created", "DbName", dbname)
+				dbExists = true
+			} else {
+				slog.Error("Target database does not exist", "DbName", dbname)
+				os.Exit(1)
+			}
 		}
 
 		// Grant CONNECT on database (idempotent)
