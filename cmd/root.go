@@ -13,9 +13,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/babbage88/infra-cli/internal/pretty"
+	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -202,7 +202,7 @@ func mergeDnsConfigFile() error {
 }
 
 func writeToEnvFile(filename, key, value string) {
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Println("Error writing to .env file:", err)
 		return
