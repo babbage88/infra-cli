@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -252,6 +253,102 @@ func dropAndRecreateDatabaseDirect(db *sql.DB, dbname string) error {
 	return nil
 }
 
+func buildPostgresURL(host string, port int, dbname, username, password string) string {
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		urlQueryEscape(username),
+		urlQueryEscape(password),
+		host,
+		port,
+		urlQueryEscape(dbname),
+	)
+}
+
+func urlQueryEscape(value string) string {
+	replacer := strings.NewReplacer(
+		"%", "%25",
+		":", "%3A",
+		"/", "%2F",
+		"?", "%3F",
+		"#", "%23",
+		"[", "%5B",
+		"]", "%5D",
+		"@", "%40",
+	)
+	return replacer.Replace(value)
+}
+
+func runGooseyBinary(gooseyPath, dbURL string) error {
+	gooseyPath = expandPath(gooseyPath)
+	if gooseyPath == "" {
+		return nil
+	}
+
+	if info, err := os.Stat(gooseyPath); err != nil {
+		return fmt.Errorf("stat goosey binary %q: %w", gooseyPath, err)
+	} else if info.IsDir() {
+		return fmt.Errorf("goosey path %q is a directory", gooseyPath)
+	}
+
+	cmd := exec.Command(gooseyPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Env = append(
+		os.Environ(),
+		"DATABASE_URL="+dbURL,
+		"GOOSE_DBSTRING="+dbURL,
+	)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("run goosey binary %q: %w", gooseyPath, err)
+	}
+
+	return nil
+}
+
+func runGooseyBinaryRemote(sshClient *goph.Client, gooseyPath, dbURL string) error {
+	gooseyPath = expandPath(gooseyPath)
+	if gooseyPath == "" {
+		return nil
+	}
+
+	info, err := os.Stat(gooseyPath)
+	if err != nil {
+		return fmt.Errorf("stat goosey binary %q: %w", gooseyPath, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("goosey path %q is a directory", gooseyPath)
+	}
+
+	remotePath := filepath.ToSlash(filepath.Join("/tmp", fmt.Sprintf("goosey-%d", os.Getpid())))
+	if err := sshClient.Upload(gooseyPath, remotePath); err != nil {
+		return fmt.Errorf("upload goosey binary to remote host: %w", err)
+	}
+
+	cleanupCmd := fmt.Sprintf("rm -f %s", shellQuote(remotePath))
+	defer func() {
+		if _, cleanupErr := sshClient.Run(cleanupCmd); cleanupErr != nil {
+			slog.Warn("Failed to remove remote goosey binary", "path", remotePath, "error", cleanupErr.Error())
+		}
+	}()
+
+	cmdStr := fmt.Sprintf(
+		"chmod 755 %s && env DATABASE_URL=%s GOOSE_DBSTRING=%s %s",
+		shellQuote(remotePath),
+		shellQuote(dbURL),
+		shellQuote(dbURL),
+		shellQuote(remotePath),
+	)
+
+	out, err := sshClient.Run(cmdStr)
+	if err != nil {
+		return formatSSHExecError(fmt.Errorf("run remote goosey binary: %w", err), out)
+	}
+
+	return nil
+}
+
 var newAppDBCmd = &cobra.Command{
 	Use:   "new-appdb",
 	Short: "Create a new PostgreSQL database and service user for an application",
@@ -273,6 +370,8 @@ var newAppDBCmd = &cobra.Command{
 		sshPassphrase := viper.GetString("ssh_passphrase")
 		useSshAgent := viper.GetBool("ssh_agent")
 		sshPort := viper.GetInt("ssh_port")
+		gooseyPath := viper.GetString("goosey_path")
+		gooseyRunRemote := viper.GetBool("goosey_run_remote")
 
 		if dropFirst {
 			createDB = true
@@ -406,6 +505,21 @@ var newAppDBCmd = &cobra.Command{
 				slog.Info("Executing SQL via SSH", "Query", stmt)
 				if err := execSQLViaSsh(sshClient, pgUser, dbname, stmt); err != nil {
 					slog.Error("Failed executing statement via SSH", slog.String("Query", stmt), slog.String("error", err.Error()))
+					os.Exit(1)
+				}
+			}
+
+			if gooseyPath != "" {
+				dbURL := buildPostgresURL(sshHost, pgPort, dbname, username, password)
+				slog.Info("Running goosey migration", "path", expandPath(gooseyPath), "database", dbname, "host", sshHost, "port", pgPort, "user", username, "remote", gooseyRunRemote)
+				var err error
+				if gooseyRunRemote {
+					err = runGooseyBinaryRemote(sshClient, gooseyPath, dbURL)
+				} else {
+					err = runGooseyBinary(gooseyPath, dbURL)
+				}
+				if err != nil {
+					slog.Error("Failed running goosey migration", "error", err.Error())
 					os.Exit(1)
 				}
 			}
@@ -562,6 +676,15 @@ var newAppDBCmd = &cobra.Command{
 			}
 		}
 
+		if gooseyPath != "" {
+			dbURL := buildPostgresURL(pgHostname, pgPort, dbname, username, password)
+			slog.Info("Running goosey migration", "path", expandPath(gooseyPath), "database", dbname, "host", pgHostname, "port", pgPort, "user", username)
+			if err := runGooseyBinary(gooseyPath, dbURL); err != nil {
+				slog.Error("Failed running goosey migration", "error", err.Error())
+				os.Exit(1)
+			}
+		}
+
 		slog.Info("Privileges granted to app user on database", "Username", username, "DbName", dbname)
 	},
 }
@@ -578,6 +701,8 @@ func init() {
 	newAppDBCmd.Flags().String("postgres-conn-db", "postgres", "Initial connection database")
 	newAppDBCmd.Flags().Int("postgres-port", 5432, "PostgreSQL port")
 	newAppDBCmd.Flags().Bool("connect-ssh", false, "Connect to PostgreSQL via SSH instead of direct connection")
+	newAppDBCmd.Flags().String("goosey-path", "", "Path to a goosey migration binary to run after database/user setup")
+	newAppDBCmd.Flags().Bool("goosey-run-remote", false, "Upload the goosey binary to the remote host and run it there instead of locally")
 	newAppDBCmd.Flags().String("ssh-host", "", "SSH host to connect to (required when using --connect-ssh)")
 	newAppDBCmd.Flags().String("ssh-user", "", "SSH username (defaults to current user if not specified)")
 	newAppDBCmd.Flags().String("ssh-key", "", "Path to SSH private key")
@@ -596,6 +721,8 @@ func init() {
 	viper.BindPFlag("postgres_port", newAppDBCmd.Flags().Lookup("postgres-port"))
 	viper.BindPFlag("postgres_conn_db", newAppDBCmd.Flags().Lookup("postgres-conn-db"))
 	viper.BindPFlag("connect_ssh", newAppDBCmd.Flags().Lookup("connect-ssh"))
+	viper.BindPFlag("goosey_path", newAppDBCmd.Flags().Lookup("goosey-path"))
+	viper.BindPFlag("goosey_run_remote", newAppDBCmd.Flags().Lookup("goosey-run-remote"))
 	viper.BindPFlag("ssh_host", newAppDBCmd.Flags().Lookup("ssh-host"))
 	viper.BindPFlag("ssh_user", newAppDBCmd.Flags().Lookup("ssh-user"))
 	viper.BindPFlag("ssh_key", newAppDBCmd.Flags().Lookup("ssh-key"))
