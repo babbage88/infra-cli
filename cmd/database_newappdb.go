@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/babbage88/goph/v2"
+	"github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -15,15 +16,11 @@ import (
 )
 
 // execSQLViaSsh executes a SQL statement on a remote PostgreSQL instance via SSH with sudo
-func execSQLViaSsh(sshHost, sshUser, pgUser, dbname, stmt string) error {
-	// Escape single quotes in SQL statement for shell safety
-	escapedStmt := strings.ReplaceAll(stmt, "'", "'\\''")
+func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
+	// Build the command that sudos to postgres user and runs psql
+	cmdStr := fmt.Sprintf("sudo -u %s psql -d %s -c '%s'", pgUser, dbname, stmt)
 
-	// Build the SSH command that sudos to postgres user and runs psql
-	cmdStr := fmt.Sprintf("sudo -u %s psql -d %s -c \"%s\"", pgUser, dbname, escapedStmt)
-	cmd := exec.Command("ssh", sshUser+"@"+sshHost, cmdStr)
-
-	if err := cmd.Run(); err != nil {
+	if _, err := sshClient.Run(cmdStr); err != nil {
 		return fmt.Errorf("SSH execution failed: %w", err)
 	}
 	return nil
@@ -45,6 +42,10 @@ var newAppDBCmd = &cobra.Command{
 		connectSSH := viper.GetBool("connect_ssh")
 		sshHost := viper.GetString("ssh_host")
 		sshUser := viper.GetString("ssh_user")
+		sshKey := viper.GetString("ssh_key")
+		sshPassphrase := viper.GetString("ssh_passphrase")
+		useSshAgent := viper.GetBool("ssh_agent")
+		sshPort := viper.GetInt("ssh_port")
 
 		// SSH-based execution path
 		if connectSSH {
@@ -59,15 +60,23 @@ var newAppDBCmd = &cobra.Command{
 				}
 			}
 
+			// Initialize SSH client
+			sshClient, err := ssh.InitializeSshClient(sshHost, sshUser, sshKey, sshPassphrase, useSshAgent, uint(sshPort))
+			if err != nil {
+				slog.Error("Failed to initialize SSH client", "error", err.Error())
+				os.Exit(1)
+			}
+			defer sshClient.Close()
+
 			if createDB {
 				// Check if database exists
 				checkStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = '%s')", dbname)
-				if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", checkStmt); err == nil {
+				if err := execSQLViaSsh(sshClient, pgUser, "postgres", checkStmt); err == nil {
 					slog.Info("Database already exists. Skipping creation", "DbName", dbname)
 				} else {
 					// Create database
 					createStmt := fmt.Sprintf(`CREATE DATABASE %s WITH OWNER = postgres ENCODING = 'UTF8' TEMPLATE = template0;`, dbname)
-					if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", createStmt); err != nil {
+					if err := execSQLViaSsh(sshClient, pgUser, "postgres", createStmt); err != nil {
 						slog.Error("Failed to create database via SSH", "error", err.Error())
 						os.Exit(1)
 					}
@@ -77,21 +86,21 @@ var newAppDBCmd = &cobra.Command{
 
 			// Create or alter user if SSH-based
 			userCheckStmt := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname = '%s')", username)
-			if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", userCheckStmt); err == nil {
+			if err := execSQLViaSsh(sshClient, pgUser, "postgres", userCheckStmt); err == nil {
 				slog.Info("User already exists. Altering password", "username", username)
 				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
-				if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", alterPwStmt); err != nil {
+				if err := execSQLViaSsh(sshClient, pgUser, "postgres", alterPwStmt); err != nil {
 					slog.Error("Failed to alter user password via SSH", "error", err.Error())
 					os.Exit(2)
 				}
 			} else {
 				createRoleStmt := fmt.Sprintf(`CREATE ROLE %s WITH LOGIN;`, username)
-				if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", createRoleStmt); err != nil {
+				if err := execSQLViaSsh(sshClient, pgUser, "postgres", createRoleStmt); err != nil {
 					slog.Error("Failed to create user via SSH", "error", err.Error())
 					os.Exit(1)
 				}
 				alterPwStmt := fmt.Sprintf(`ALTER USER %s WITH PASSWORD '%s';`, username, password)
-				if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", alterPwStmt); err != nil {
+				if err := execSQLViaSsh(sshClient, pgUser, "postgres", alterPwStmt); err != nil {
 					slog.Error("Failed to alter user via SSH", "error", err.Error())
 					os.Exit(1)
 				}
@@ -100,7 +109,7 @@ var newAppDBCmd = &cobra.Command{
 
 			// Grant database privileges
 			grantDbStmt := fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, dbname, username)
-			if err := execSQLViaSsh(sshHost, sshUser, pgUser, "postgres", grantDbStmt); err != nil {
+			if err := execSQLViaSsh(sshClient, pgUser, "postgres", grantDbStmt); err != nil {
 				slog.Error("Failed to grant database privileges via SSH", "error", err.Error())
 				os.Exit(1)
 			}
@@ -113,7 +122,7 @@ var newAppDBCmd = &cobra.Command{
 
 			for _, stmt := range schemaStatements {
 				slog.Info("Executing SQL via SSH", "Query", stmt)
-				if err := execSQLViaSsh(sshHost, sshUser, pgUser, dbname, stmt); err != nil {
+				if err := execSQLViaSsh(sshClient, pgUser, dbname, stmt); err != nil {
 					slog.Error("Failed executing statement via SSH", slog.String("Query", stmt), slog.String("error", err.Error()))
 					os.Exit(1)
 				}
@@ -254,6 +263,10 @@ func init() {
 	newAppDBCmd.Flags().Bool("connect-ssh", false, "Connect to PostgreSQL via SSH instead of direct connection")
 	newAppDBCmd.Flags().String("ssh-host", "", "SSH host to connect to (required when using --connect-ssh)")
 	newAppDBCmd.Flags().String("ssh-user", "", "SSH username (defaults to current user if not specified)")
+	newAppDBCmd.Flags().String("ssh-key", "", "Path to SSH private key")
+	newAppDBCmd.Flags().String("ssh-passphrase", "", "SSH key passphrase")
+	newAppDBCmd.Flags().Bool("ssh-agent", false, "Use SSH agent for authentication")
+	newAppDBCmd.Flags().Int("ssh-port", 22, "SSH port")
 
 	viper.BindPFlag("db_name", newAppDBCmd.Flags().Lookup("db-name"))
 	viper.BindPFlag("db_user", newAppDBCmd.Flags().Lookup("db-user"))
@@ -267,6 +280,10 @@ func init() {
 	viper.BindPFlag("connect_ssh", newAppDBCmd.Flags().Lookup("connect-ssh"))
 	viper.BindPFlag("ssh_host", newAppDBCmd.Flags().Lookup("ssh-host"))
 	viper.BindPFlag("ssh_user", newAppDBCmd.Flags().Lookup("ssh-user"))
+	viper.BindPFlag("ssh_key", newAppDBCmd.Flags().Lookup("ssh-key"))
+	viper.BindPFlag("ssh_passphrase", newAppDBCmd.Flags().Lookup("ssh-passphrase"))
+	viper.BindPFlag("ssh_agent", newAppDBCmd.Flags().Lookup("ssh-agent"))
+	viper.BindPFlag("ssh_port", newAppDBCmd.Flags().Lookup("ssh-port"))
 
 	viper.AutomaticEnv()
 
