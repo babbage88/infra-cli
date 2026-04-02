@@ -543,12 +543,15 @@ var newAppDBCmd = &cobra.Command{
 		pgDb := viper.GetString("postgres_conn_db")
 		pgPassword := viper.GetString("postgres_password")
 		connectSSH := viper.GetBool("connect_ssh")
-		sshHost := viper.GetString("ssh_host")
-		sshUser := viper.GetString("ssh_user")
-		sshKey := expandPath(viper.GetString("ssh_key"))
-		sshPassphrase := viper.GetString("ssh_passphrase")
-		useSshAgent := viper.GetBool("ssh_agent")
-		sshPort := viper.GetInt("ssh_port")
+		sshHost := rootViperCfg.GetString("ssh_remote_host")
+		sshUser := rootViperCfg.GetString("ssh_remote_user")
+		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
+		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
+		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
+		sshPort := int(rootViperCfg.GetUint("ssh_port"))
+		if sshPort == 0 {
+			sshPort = 22
+		}
 		gooseyPath := viper.GetString("goosey_path")
 		gooseyRunRemote := viper.GetBool("goosey_run_remote")
 		gooseyBuildRemote := viper.GetBool("goosey_build_remote")
@@ -570,7 +573,7 @@ var newAppDBCmd = &cobra.Command{
 		// SSH-based execution path
 		if connectSSH {
 			if sshHost == "" {
-				slog.Error("SSH host is required when using --connect-ssh")
+				slog.Error("SSH host is required when using --connect-ssh", "hint", "set the global --ssh-remote-host flag")
 				os.Exit(1)
 			}
 			if sshUser == "" {
@@ -915,12 +918,6 @@ func init() {
 	newAppDBCmd.Flags().String("remote-postgres-hba-cidr", "0.0.0.0/0", "CIDR to add to pg_hba.conf when enabling remote PostgreSQL access")
 	newAppDBCmd.Flags().String("remote-postgres-auth-method", "scram-sha-256", "Authentication method to add to pg_hba.conf when enabling remote PostgreSQL access")
 	newAppDBCmd.Flags().String("remote-postgres-listen-addresses", "*", "listen_addresses value to set in postgresql.conf when enabling remote PostgreSQL access")
-	newAppDBCmd.Flags().String("ssh-host", "", "SSH host to connect to (required when using --connect-ssh)")
-	newAppDBCmd.Flags().String("ssh-user", "", "SSH username (defaults to current user if not specified)")
-	newAppDBCmd.Flags().String("ssh-key", "", "Path to SSH private key")
-	newAppDBCmd.Flags().String("ssh-passphrase", "", "SSH key passphrase")
-	newAppDBCmd.Flags().Bool("ssh-agent", false, "Use SSH agent for authentication")
-	newAppDBCmd.Flags().Int("ssh-port", 22, "SSH port")
 
 	viper.BindPFlag("db_name", newAppDBCmd.Flags().Lookup("db-name"))
 	viper.BindPFlag("db_user", newAppDBCmd.Flags().Lookup("db-user"))
@@ -942,12 +939,6 @@ func init() {
 	viper.BindPFlag("remote_postgres_hba_cidr", newAppDBCmd.Flags().Lookup("remote-postgres-hba-cidr"))
 	viper.BindPFlag("remote_postgres_auth_method", newAppDBCmd.Flags().Lookup("remote-postgres-auth-method"))
 	viper.BindPFlag("remote_postgres_listen_addresses", newAppDBCmd.Flags().Lookup("remote-postgres-listen-addresses"))
-	viper.BindPFlag("ssh_host", newAppDBCmd.Flags().Lookup("ssh-host"))
-	viper.BindPFlag("ssh_user", newAppDBCmd.Flags().Lookup("ssh-user"))
-	viper.BindPFlag("ssh_key", newAppDBCmd.Flags().Lookup("ssh-key"))
-	viper.BindPFlag("ssh_passphrase", newAppDBCmd.Flags().Lookup("ssh-passphrase"))
-	viper.BindPFlag("ssh_agent", newAppDBCmd.Flags().Lookup("ssh-agent"))
-	viper.BindPFlag("ssh_port", newAppDBCmd.Flags().Lookup("ssh-port"))
 
 	viper.AutomaticEnv()
 
