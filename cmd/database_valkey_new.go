@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -92,6 +93,11 @@ var databaseValkeyNewCmd = &cobra.Command{
 			"bind", valkeyBind,
 			"port", valkeyPort,
 		)
+
+		fmt.Printf("Valkey host: %s\n", sshHost)
+		fmt.Printf("Valkey port: %d\n", valkeyPort)
+		fmt.Printf("Valkey user: %s\n", valkeyUsername)
+		fmt.Printf("Valkey URI: %s\n", buildValkeyURL(sshHost, valkeyPort, valkeyUsername, valkeyPassword))
 	},
 }
 
@@ -111,4 +117,14 @@ func init() {
 	valkeyNewViper.BindPFlag("valkey_bind", databaseValkeyNewCmd.Flags().Lookup("bind"))
 	valkeyNewViper.BindPFlag("valkey_port", databaseValkeyNewCmd.Flags().Lookup("port"))
 	valkeyNewViper.BindPFlag("valkey_acl_file", databaseValkeyNewCmd.Flags().Lookup("acl-file"))
+}
+
+func buildValkeyURL(host string, port int, username, password string) string {
+	return fmt.Sprintf(
+		"redis://%s:%s@%s:%d",
+		urlQueryEscape(username),
+		urlQueryEscape(password),
+		host,
+		port,
+	)
 }

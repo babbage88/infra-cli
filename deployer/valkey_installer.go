@@ -47,7 +47,7 @@ func (rvi *RemoteValkeyInstaller) EnsureInstalledAndConfigured(username, passwor
 		return err
 	}
 
-	configPath, serviceName, err := rvi.detectConfigAndService()
+	configPath, err := rvi.detectConfigAndService()
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (rvi *RemoteValkeyInstaller) EnsureInstalledAndConfigured(username, passwor
 	if err := rvi.configureRemoteAccess(configPath, bind, port, aclFile); err != nil {
 		return err
 	}
-	if err := rvi.restartService(serviceName); err != nil {
+	if err := rvi.restartService(); err != nil {
 		return err
 	}
 	if err := rvi.createOrUpdateACLUser(username, password, port); err != nil {
@@ -145,7 +145,7 @@ func (rvi *RemoteValkeyInstaller) ensureValkeyInstalled() error {
 	return nil
 }
 
-func (rvi *RemoteValkeyInstaller) detectConfigAndService() (string, string, error) {
+func (rvi *RemoteValkeyInstaller) detectConfigAndService() (string, error) {
 	findConfigScript := `for file in /etc/valkey/valkey.conf /etc/valkey.conf /etc/redis/redis.conf /etc/redis.conf; do
   if [ -f "$file" ]; then
     printf '%s\n' "$file"
@@ -156,24 +156,15 @@ find /etc -maxdepth 3 -type f \( -name 'valkey.conf' -o -name 'redis.conf' \) 2>
 
 	out, err := rvi.SshClient.Run("sh -c " + shellQuote(findConfigScript))
 	if err != nil {
-		return "", "", formatRemoteCommandError(fmt.Errorf("locate valkey config: %w", err), out)
+		return "", formatRemoteCommandError(fmt.Errorf("locate valkey config: %w", err), out)
 	}
 
 	configPath := strings.TrimSpace(string(out))
 	if configPath == "" {
-		return "", "", fmt.Errorf("could not locate a Valkey configuration file on remote host")
+		return "", fmt.Errorf("could not locate a Valkey configuration file on remote host")
 	}
 
-	serviceCandidates := []string{"valkey", "valkey-server", "redis", "redis-server"}
-	for _, service := range serviceCandidates {
-		checkCmd := fmt.Sprintf("systemctl list-unit-files %s.service --no-legend 2>/dev/null | grep -Fq %s.service", shellQuote(service), shellQuote(service))
-		if out, err := rvi.SshClient.Run("sh -c " + shellQuote(checkCmd)); err == nil {
-			_ = out
-			return configPath, service, nil
-		}
-	}
-
-	return configPath, "valkey", nil
+	return configPath, nil
 }
 
 func (rvi *RemoteValkeyInstaller) configureRemoteAccess(configPath, bind string, port int, aclFile string) error {
@@ -184,6 +175,11 @@ acl_file=%s
 acl_dir=$(dirname "$acl_file")
 mkdir -p "$acl_dir"
 touch "$acl_file"
+if id -u valkey >/dev/null 2>&1; then
+  chown valkey:valkey "$acl_file"
+elif id -u redis >/dev/null 2>&1; then
+  chown redis:redis "$acl_file"
+fi
 chmod 640 "$acl_file"
 
 set_config() {
@@ -214,19 +210,32 @@ set_config aclfile "$acl_file"`,
 	return nil
 }
 
-func (rvi *RemoteValkeyInstaller) restartService(serviceName string) error {
+func (rvi *RemoteValkeyInstaller) restartService() error {
 	restartScript := fmt.Sprintf(
-		`if sudo systemctl restart %s >/dev/null 2>&1; then
-  exit 0
-fi
-if command -v service >/dev/null 2>&1 && sudo service %s restart >/dev/null 2>&1; then
-  exit 0
-fi
-echo "Unable to restart Valkey service %s" >&2
+		`set -e
+for svc in %s $(systemctl list-unit-files 'valkey*' 'redis*' --type=service --no-legend 2>/dev/null | awk '{print $1}') $(systemctl list-units --all 'valkey*' 'redis*' --type=service --no-legend 2>/dev/null | awk '{print $1}'); do
+  [ -n "$svc" ] || continue
+  svc=${svc%%.service}
+  if sudo systemctl restart "$svc" >/dev/null 2>&1; then
+    exit 0
+  fi
+  if sudo systemctl start "$svc" >/dev/null 2>&1; then
+    exit 0
+  fi
+  if command -v service >/dev/null 2>&1 && sudo service "$svc" restart >/dev/null 2>&1; then
+    exit 0
+  fi
+done
+for svc in valkey valkey-server redis redis-server; do
+  if systemctl status "$svc" >/dev/null 2>&1; then
+    systemctl --no-pager --full status "$svc" || true
+    journalctl -u "$svc" -n 25 --no-pager || true
+    break
+  fi
+done
+echo "Unable to restart Valkey service. Tried common Valkey/Redis unit names and detected services." >&2
 exit 1`,
-		shellQuote(serviceName),
-		shellQuote(serviceName),
-		serviceName,
+		shellJoinWords([]string{"valkey", "valkey.service", "valkey-server", "valkey-server.service", "redis", "redis.service", "redis-server", "redis-server.service"}),
 	)
 
 	out, err := rvi.SshClient.Run("sh -c " + shellQuote(restartScript))
