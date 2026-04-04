@@ -15,6 +15,8 @@ import (
 
 var garageDeployViper *viper.Viper
 
+const defaultGarageVersion = "v2.2.0"
+
 var storageS3DeployGarageNodeCmd = &cobra.Command{
 	Use:   "deploy-garage-node",
 	Short: "Install and configure a Garage S3 storage node on a remote host over SSH",
@@ -158,7 +160,7 @@ func init() {
 
 	storageS3Cmd.AddCommand(storageS3DeployGarageNodeCmd)
 
-	storageS3DeployGarageNodeCmd.Flags().String("garage-version", "", "Garage version to install, for example v2.2.0; defaults to the latest official release")
+	storageS3DeployGarageNodeCmd.Flags().String("garage-version", defaultGarageVersion, "Garage version to install, for example v2.2.0")
 	storageS3DeployGarageNodeCmd.Flags().String("garage-binary-path", "/usr/local/bin/garage", "Path where the Garage binary should be installed")
 	storageS3DeployGarageNodeCmd.Flags().String("garage-config-path", "/etc/garage.toml", "Path for the Garage TOML configuration file")
 	storageS3DeployGarageNodeCmd.Flags().String("garage-metadata-dir", "/var/lib/garage/meta", "Garage metadata directory")

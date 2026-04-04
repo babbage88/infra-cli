@@ -147,9 +147,8 @@ func (rgi *RemoteGarageInstaller) ensureGarageInstalled(cfg GarageNodeConfig) er
 		installScript = "sudo pacman -Sy --noconfirm garage"
 	default:
 		version := strings.TrimSpace(cfg.Version)
-		versionSnippet := "version=$(printf '%s\\n' \"$release_html\" | awk '/^###  v[0-9]/{print $2; exit}')"
-		if version != "" {
-			versionSnippet = "version=" + shellQuote(version)
+		if version == "" {
+			version = "v2.2.0"
 		}
 
 		installScript = fmt.Sprintf(
@@ -180,19 +179,12 @@ case "$arch" in
     ;;
 esac
 
-release_html=$(fetch https://garagehq.deuxfleurs.fr/_releases.html)
-%s
-if [ -z "$version" ]; then
-  echo "unable to determine latest Garage release version" >&2
-  exit 1
-fi
-
 tmp_bin=$(mktemp)
-fetch "https://garagehq.deuxfleurs.fr/_releases/${version}/${target}/garage" > "$tmp_bin"
+fetch "https://garagehq.deuxfleurs.fr/_releases/%s/${target}/garage" > "$tmp_bin"
 chmod +x "$tmp_bin"
 sudo install -m 0755 "$tmp_bin" %s
 rm -f "$tmp_bin"`,
-			versionSnippet,
+			version,
 			shellQuote(cfg.BinaryPath),
 		)
 	}
@@ -217,12 +209,15 @@ func (rgi *RemoteGarageInstaller) writeGarageConfig(cfg GarageNodeConfig) error 
 		`set -e
 config_dir=$(dirname %s)
 mkdir -p "$config_dir"
+sudo mkdir -p %s %s
 cat > /tmp/garage.toml <<'EOF'
 %s
 EOF
 sudo install -m 0644 /tmp/garage.toml %s
 rm -f /tmp/garage.toml`,
 		shellQuote(cfg.ConfigPath),
+		shellQuote(cfg.MetadataDir),
+		shellQuote(cfg.DataDir),
 		configContent,
 		shellQuote(cfg.ConfigPath),
 	)
@@ -246,16 +241,26 @@ Environment='RUST_LOG=%s' 'RUST_BACKTRACE=1'
 ExecStart=%s -c %s server
 StateDirectory=garage
 DynamicUser=true
+User=garage
+Group=garage
+PermissionsStartOnly=true
+ExecStartPre=/usr/bin/install -d -o garage -g garage -m 0750 %s %s
 ProtectHome=true
 NoNewPrivileges=true
 LimitNOFILE=42000
 
 [Install]
 WantedBy=multi-user.target
-`, cfg.LogLevel, cfg.BinaryPath, cfg.ConfigPath)
+`, cfg.LogLevel, cfg.BinaryPath, cfg.ConfigPath, cfg.MetadataDir, cfg.DataDir)
 
 	writeScript := fmt.Sprintf(
 		`set -e
+if ! getent group garage >/dev/null 2>&1; then
+  sudo groupadd --system garage
+fi
+if ! id -u garage >/dev/null 2>&1; then
+  sudo useradd --system --home-dir /var/lib/garage --shell /usr/sbin/nologin --gid garage garage
+fi
 cat > /tmp/garage.service <<'EOF'
 %s
 EOF
@@ -296,7 +301,17 @@ exit 1`
 }
 
 func (rgi *RemoteGarageInstaller) verifyGarageStatus(cfg GarageNodeConfig) error {
-	verifyScript := shellJoinWords([]string{cfg.BinaryPath, "-c", cfg.ConfigPath, "status"})
+	verifyScript := fmt.Sprintf(
+		`set -e
+sudo systemctl is-active --quiet garage
+node_key_file=%s
+if [ ! -f "$node_key_file" ]; then
+  exit 0
+fi
+exec %s`,
+		shellQuote(cfg.MetadataDir+"/node_key"),
+		shellJoinWords([]string{cfg.BinaryPath, "-c", cfg.ConfigPath, "status"}),
+	)
 	out, err := rgi.SshClient.Run("sh -c " + shellQuote(verifyScript))
 	if err != nil {
 		return formatRemoteCommandError(fmt.Errorf("verify garage status: %w", err), out)
