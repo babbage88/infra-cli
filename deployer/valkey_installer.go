@@ -146,15 +146,43 @@ func (rvi *RemoteValkeyInstaller) ensureValkeyInstalled() error {
 }
 
 func (rvi *RemoteValkeyInstaller) detectConfigAndService() (string, error) {
-	findConfigScript := `for file in /etc/valkey/valkey.conf /etc/valkey.conf /etc/redis/redis.conf /etc/redis.conf; do
+	findConfigScript := `for file in /etc/valkey/valkey.conf /etc/valkey.conf /etc/redis/redis.conf /etc/redis.conf /etc/valkey/default.conf /etc/redis/default.conf; do
   if [ -f "$file" ]; then
     printf '%s\n' "$file"
     exit 0
   fi
 done
-find /etc -maxdepth 3 -type f \( -name 'valkey.conf' -o -name 'redis.conf' \) 2>/dev/null | head -n 1`
 
-	out, err := rvi.SshClient.Run("sh -c " + shellQuote(findConfigScript))
+find /etc -maxdepth 5 -type f \( -name 'valkey.conf' -o -name 'redis.conf' -o -name '*.conf' \) 2>/dev/null | grep -E '/(valkey|redis)/|/(valkey|redis)\.conf$' | head -n 1 && exit 0
+
+for svc in valkey valkey-server redis redis-server; do
+  systemctl cat "$svc" 2>/dev/null \
+    | grep -Eo '/[^[:space:]]+\.conf' \
+    | while read -r file; do
+        [ -f "$file" ] && printf '%s\n' "$file"
+      done \
+    | head -n 1 && exit 0
+done
+
+if command -v rpm >/dev/null 2>&1; then
+  rpm -ql valkey redis 2>/dev/null \
+    | grep -E '/[^[:space:]]+\.conf$' \
+    | while read -r file; do
+        [ -f "$file" ] && printf '%s\n' "$file"
+      done \
+    | head -n 1 && exit 0
+fi
+
+if command -v dpkg-query >/dev/null 2>&1; then
+  dpkg-query -L valkey redis-server 2>/dev/null \
+    | grep -E '/[^[:space:]]+\.conf$' \
+    | while read -r file; do
+        [ -f "$file" ] && printf '%s\n' "$file"
+      done \
+    | head -n 1 && exit 0
+fi`
+
+	out, err := rvi.SshClient.Run("sudo sh -c " + shellQuote(findConfigScript))
 	if err != nil {
 		return "", formatRemoteCommandError(fmt.Errorf("locate valkey config: %w", err), out)
 	}
