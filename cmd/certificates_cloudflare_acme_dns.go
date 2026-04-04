@@ -15,6 +15,13 @@ import (
 
 var certificatesCloudflareACMEViper *viper.Viper
 
+var defaultRecursiveNameServers = []string{
+	"1.1.1.1:53",
+	"1.0.0.1:53",
+	"8.8.8.8:53",
+	"8.8.4.4:53",
+}
+
 var certificatesCloudflareACMEDNSCmd = &cobra.Command{
 	Use:   "cloudflare-acme-dns",
 	Short: "Renew an ACME certificate using the Cloudflare DNS challenge",
@@ -46,6 +53,9 @@ var certificatesCloudflareACMEDNSCmd = &cobra.Command{
 			slog.Error("Timeout must be greater than zero", "timeout_seconds", timeoutSeconds)
 			os.Exit(1)
 		}
+		if len(recursiveNameServers) == 0 {
+			recursiveNameServers = append([]string(nil), defaultRecursiveNameServers...)
+		}
 
 		req := certrenew.CertDnsRenewReq{
 			DomainNames:          domainNames,
@@ -58,7 +68,7 @@ var certificatesCloudflareACMEDNSCmd = &cobra.Command{
 			Timeout:              time.Duration(timeoutSeconds) * time.Second,
 		}
 
-		slog.Info("Renewing ACME certificate via Cloudflare DNS", "domains", domainNames, "acme_url", acmeURL)
+		slog.Info("Renewing ACME certificate via Cloudflare DNS", "domains", domainNames, "acme_url", acmeURL, "recursive_nameservers", recursiveNameServers)
 
 		certData, err := req.Renew()
 		if err != nil {
@@ -96,7 +106,7 @@ func init() {
 	certificatesCloudflareACMEDNSCmd.Flags().String("zip-dir", "", "Optional zip filename prefix/directory name used by the renewal package")
 	certificatesCloudflareACMEDNSCmd.Flags().Bool("push-s3", false, "Push the resulting certificate bundle to S3")
 	certificatesCloudflareACMEDNSCmd.Flags().String("cloudflare-token", "", "Cloudflare API token for DNS challenge validation")
-	certificatesCloudflareACMEDNSCmd.Flags().StringSlice("recursive-nameserver", nil, "Recursive DNS servers to use for propagation checks")
+	certificatesCloudflareACMEDNSCmd.Flags().StringSlice("recursive-nameserver", defaultRecursiveNameServers, "Recursive DNS servers to use for propagation checks")
 	certificatesCloudflareACMEDNSCmd.Flags().Int("timeout-seconds", 120, "DNS challenge timeout in seconds")
 	certificatesCloudflareACMEDNSCmd.Flags().String("output-dir", "./certs", "Directory to write renewed certificate files when --write-files is enabled")
 	certificatesCloudflareACMEDNSCmd.Flags().Bool("write-files", true, "Write the renewed certificate, chain, fullchain, and private key to local files")
