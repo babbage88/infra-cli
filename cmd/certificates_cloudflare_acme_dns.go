@@ -55,7 +55,7 @@ var certificatesCloudflareACMEDNSCmd = &cobra.Command{
 			PushS3:               pushS3,
 			Token:                token,
 			RecursiveNameServers: recursiveNameServers,
-			Timeout:              time.Duration(timeoutSeconds),
+			Timeout:              time.Duration(timeoutSeconds) * time.Second,
 		}
 
 		slog.Info("Renewing ACME certificate via Cloudflare DNS", "domains", domainNames, "acme_url", acmeURL)
