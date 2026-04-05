@@ -78,7 +78,7 @@ func init() {
 func initConfig() {
 	err := loadRootConfigFile()
 	if err != nil {
-		pretty.PrintErrorf("error loading root config %s", err.Error())
+		slog.Error("error loading root config file", slog.String("error", err.Error()))
 	}
 
 	rootViperCfg.SetDefault("api_tokens", apiTokens)
@@ -137,8 +137,6 @@ func loadRootConfigFile() error {
 		rootViperCfg.SetConfigFile(cfgFile)
 	} else {
 		rootViperCfg.SetConfigName("default")
-		rootViperCfg.SetConfigType("yaml")
-		rootViperCfg.AddConfigPath(".")
 		rootViperCfg.AddConfigPath(infractldotConfigDir)
 		rootViperCfg.AddConfigPath(".config/infractl")
 	}
