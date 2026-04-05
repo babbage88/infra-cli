@@ -23,7 +23,8 @@ export USERS_UTIL_SRC:=./internal/remote/deployment/createuser
 ifeq ($(VERBOSE),1)
 	V = -v
 endif
-export LATEST_TAG := $(shell git fetch --tags && git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
+release_build_flags:=-trimpath -ldflags="-s -w"
+export LATEST_TAG:=$(shell git fetch --tags && git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n 1)
 
 sqlc-and-migrations:
 	source config_goose.sh
@@ -50,6 +51,11 @@ build: utils
 	@echo "[INFO] Building new release artifact binary: $(ARTIFACT)"
 	@go build $(V) -o $(ARTIFACT) .
 
+build-release: utils
+	@echo "[INFO] Creating $(ARTIFACT_DIR)..."
+	@mkdir -p $(ARTIFACT_DIR)
+	@echo "[INFO] Building new release artifact binary: $(ARTIFACT)"
+	@go build $(release_build_flags)$(V) -o $(ARTIFACT) .
 build-quiet: utils
 	go build -o $(BIN_NAME)
 
