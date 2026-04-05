@@ -8,16 +8,17 @@ import (
 )
 
 type GarageTokenRequest struct {
-	BucketName     string
-	KeyName        string
-	CreateBucket   bool
-	AllowRead      bool
-	AllowWrite     bool
-	AllowOwner     bool
-	BinaryPath     string
-	ConfigPath     string
-	LayoutZone     string
-	LayoutCapacity string
+	BucketName         string
+	KeyName            string
+	CreateBucket       bool
+	AllowCreateBuckets bool
+	AllowRead          bool
+	AllowWrite         bool
+	AllowOwner         bool
+	BinaryPath         string
+	ConfigPath         string
+	LayoutZone         string
+	LayoutCapacity     string
 }
 
 type GarageS3Credentials struct {
@@ -28,9 +29,6 @@ type GarageS3Credentials struct {
 }
 
 func (rgi *RemoteGarageInstaller) CreateS3Token(req GarageTokenRequest) (*GarageS3Credentials, error) {
-	if strings.TrimSpace(req.BucketName) == "" {
-		return nil, fmt.Errorf("garage bucket name is required")
-	}
 	if strings.TrimSpace(req.KeyName) == "" {
 		return nil, fmt.Errorf("garage key name is required")
 	}
@@ -45,6 +43,11 @@ func (rgi *RemoteGarageInstaller) CreateS3Token(req GarageTokenRequest) (*Garage
 	}
 	if strings.TrimSpace(req.LayoutCapacity) == "" {
 		req.LayoutCapacity = "100G"
+	}
+
+	requiresBucket := strings.TrimSpace(req.BucketName) != "" || req.CreateBucket || req.AllowRead || req.AllowWrite || req.AllowOwner
+	if requiresBucket && strings.TrimSpace(req.BucketName) == "" {
+		return nil, fmt.Errorf("garage bucket name is required when bucket access flags are used")
 	}
 
 	if req.CreateBucket {
@@ -67,8 +70,16 @@ func (rgi *RemoteGarageInstaller) CreateS3Token(req GarageTokenRequest) (*Garage
 		return nil, err
 	}
 
-	if err := rgi.allowBucketForKey(req.BinaryPath, req.ConfigPath, req.BucketName, req.KeyName, req.AllowRead, req.AllowWrite, req.AllowOwner); err != nil {
-		return nil, err
+	if req.AllowCreateBuckets {
+		if err := rgi.allowKeyToCreateBuckets(req.BinaryPath, req.ConfigPath, req.KeyName); err != nil {
+			return nil, err
+		}
+	}
+
+	if requiresBucket {
+		if err := rgi.allowBucketForKey(req.BinaryPath, req.ConfigPath, req.BucketName, req.KeyName, req.AllowRead, req.AllowWrite, req.AllowOwner); err != nil {
+			return nil, err
+		}
 	}
 
 	return &GarageS3Credentials{
@@ -114,6 +125,16 @@ func (rgi *RemoteGarageInstaller) ensureKeyExists(binaryPath, configPath, keyNam
 	}
 	creds.KeyName = keyName
 	return creds, nil
+}
+
+func (rgi *RemoteGarageInstaller) allowKeyToCreateBuckets(binaryPath, configPath, keyName string) error {
+	args := []string{binaryPath, "-c", configPath, "key", "allow", "--create-bucket", keyName}
+	cmd := shellJoinWords(args)
+	out, err := rgi.SshClient.Run("sh -c " + shellQuote(cmd))
+	if err != nil {
+		return formatRemoteCommandError(fmt.Errorf("grant garage key create-bucket permission: %w", err), out)
+	}
+	return nil
 }
 
 func (rgi *RemoteGarageInstaller) allowBucketForKey(binaryPath, configPath, bucketName, keyName string, allowRead, allowWrite, allowOwner bool) error {

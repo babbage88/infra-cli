@@ -26,6 +26,7 @@ var storageS3CreateTokenCmd = &cobra.Command{
 		bucketName := garageTokenViper.GetString("garage_bucket_name")
 		keyName := garageTokenViper.GetString("garage_key_name")
 		createBucket := garageTokenViper.GetBool("garage_create_bucket")
+		allowCreateBuckets := garageTokenViper.GetBool("garage_allow_create_buckets")
 		allowRead := garageTokenViper.GetBool("garage_allow_read")
 		allowWrite := garageTokenViper.GetBool("garage_allow_write")
 		allowOwner := garageTokenViper.GetBool("garage_allow_owner")
@@ -45,14 +46,28 @@ var storageS3CreateTokenCmd = &cobra.Command{
 		if sshKey == "" {
 			sshKey = defaultSSHKeyPath()
 		}
-		if !cmd.Flags().Changed("bucket") {
+		if !cmd.Flags().Changed("bucket") && !allowCreateBuckets {
 			bucketName = promptInput("Garage bucket name", bucketName)
 		}
 		if !cmd.Flags().Changed("key-name") {
 			keyName = promptInput("Garage key name", keyName)
 		}
-		if bucketName == "" || keyName == "" {
-			slog.Error("Both bucket name and key name are required")
+		if keyName == "" {
+			slog.Error("Key name is required")
+			os.Exit(1)
+		}
+
+		if allowCreateBuckets && bucketName == "" &&
+			!cmd.Flags().Changed("allow-read") &&
+			!cmd.Flags().Changed("allow-write") &&
+			!cmd.Flags().Changed("allow-owner") {
+			allowRead = false
+			allowWrite = false
+			allowOwner = false
+		}
+
+		if bucketName == "" && !allowCreateBuckets {
+			slog.Error("Bucket name is required unless --allow-create-buckets is set")
 			os.Exit(1)
 		}
 		if garageS3Endpoint == "" {
@@ -82,16 +97,17 @@ var storageS3CreateTokenCmd = &cobra.Command{
 		defer installer.SshClient.Close()
 
 		req := deployer.GarageTokenRequest{
-			BucketName:     bucketName,
-			KeyName:        keyName,
-			CreateBucket:   createBucket,
-			AllowRead:      allowRead,
-			AllowWrite:     allowWrite,
-			AllowOwner:     allowOwner,
-			BinaryPath:     garageBinaryPath,
-			ConfigPath:     garageConfigPath,
-			LayoutZone:     garageLayoutZone,
-			LayoutCapacity: garageLayoutCapacity,
+			BucketName:         bucketName,
+			KeyName:            keyName,
+			CreateBucket:       createBucket,
+			AllowCreateBuckets: allowCreateBuckets,
+			AllowRead:          allowRead,
+			AllowWrite:         allowWrite,
+			AllowOwner:         allowOwner,
+			BinaryPath:         garageBinaryPath,
+			ConfigPath:         garageConfigPath,
+			LayoutZone:         garageLayoutZone,
+			LayoutCapacity:     garageLayoutCapacity,
 		}
 
 		slog.Info(
@@ -100,6 +116,7 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			"bucket", bucketName,
 			"key_name", keyName,
 			"create_bucket", createBucket,
+			"allow_create_buckets", allowCreateBuckets,
 		)
 
 		creds, err := installer.CreateS3Token(req)
@@ -124,6 +141,7 @@ func init() {
 	storageS3CreateTokenCmd.Flags().String("bucket", "", "Garage bucket name")
 	storageS3CreateTokenCmd.Flags().String("key-name", "", "Garage key name to create or fetch")
 	storageS3CreateTokenCmd.Flags().Bool("create-bucket", true, "Create the Garage bucket if it does not exist")
+	storageS3CreateTokenCmd.Flags().Bool("allow-create-buckets", false, "Grant the key permission to create new buckets across the Garage cluster")
 	storageS3CreateTokenCmd.Flags().Bool("allow-read", true, "Grant read access to the bucket")
 	storageS3CreateTokenCmd.Flags().Bool("allow-write", true, "Grant write access to the bucket")
 	storageS3CreateTokenCmd.Flags().Bool("allow-owner", true, "Grant owner access to the bucket")
@@ -136,6 +154,7 @@ func init() {
 	garageTokenViper.BindPFlag("garage_bucket_name", storageS3CreateTokenCmd.Flags().Lookup("bucket"))
 	garageTokenViper.BindPFlag("garage_key_name", storageS3CreateTokenCmd.Flags().Lookup("key-name"))
 	garageTokenViper.BindPFlag("garage_create_bucket", storageS3CreateTokenCmd.Flags().Lookup("create-bucket"))
+	garageTokenViper.BindPFlag("garage_allow_create_buckets", storageS3CreateTokenCmd.Flags().Lookup("allow-create-buckets"))
 	garageTokenViper.BindPFlag("garage_allow_read", storageS3CreateTokenCmd.Flags().Lookup("allow-read"))
 	garageTokenViper.BindPFlag("garage_allow_write", storageS3CreateTokenCmd.Flags().Lookup("allow-write"))
 	garageTokenViper.BindPFlag("garage_allow_owner", storageS3CreateTokenCmd.Flags().Lookup("allow-owner"))
