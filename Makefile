@@ -1,10 +1,17 @@
 GHCR_REPO:=ghcr.io/babbage88/infractl:
-DBHELPERAPI_GHCR_REPO:=ghcr.io/babbage88/dbhelperapi:
+OS_ARCH:=$(shell uname)
 ARTIFACT_DIR=dist
 BIN_NAME:=infractl
 ARTIFACT:=$(ARTIFACT_DIR)/$(BIN_NAME)
-DEFAULT_CFG_FILE:=default.yaml
 DEFUALT_CONFIG_DIR:=~/.config/infractl
+DEFAULT_CFG_FILE:=default.yaml
+ifeq ($(OS_ARCH),Darwin)
+	DEFUALT_CONFIG_DIR = $(HOME)/Library/Application\ Support/infractl
+else ifeq ($(OS_ARCH),Linux)
+	DEFUALT_CONFIG_DIR = $(HOME)/.config/infractl
+else
+	$(error "Unsupported OS: $(OS_ARCH)")
+endif
 PVE_CONFIG_FILE:=pve.yaml
 MAIN_BRANCH:=master
 VERSION_TYPE:=patch
@@ -31,7 +38,6 @@ sqlc-and-migrations:
 	goose down -v
 	goose up -v
 	sqlc generate
-
 
 utils-dir:
 	@echo "[INFO] **** Creating $(REMOTE_UTILS_DIR) ****"
@@ -77,29 +83,29 @@ install: build
 # Usage: make release [VERSION=major|minor|patch]
 fetch-tags:
 	@{ \
-	  branch=$$(git rev-parse --abbrev-ref HEAD); \
-	  if [ "$$branch" != "$(MAIN_BRANCH)" ]; then \
-	    echo "Error: You must be on the $(MAIN_BRANCH) branch. Current branch is '$$branch'."; \
-	    exit 1; \
-	  fi; \
-	  git fetch origin $(MAIN_BRANCH); \
-	  UPSTREAM=origin/$(MAIN_BRANCH); \
-	  LOCAL=$$(git rev-parse @); \
-	  REMOTE=$$(git rev-parse "$$UPSTREAM"); \
-	  BASE=$$(git merge-base @ "$$UPSTREAM"); \
-	  if [ "$$LOCAL" != "$$REMOTE" ]; then \
-	    echo "Error: Your local $(MAIN_BRANCH) branch is not up-to-date with remote. Please pull the latest changes."; \
-	    exit 1; \
-	  fi; \
-	  git fetch --tags; \
+	MAIN_BRANCH=$(shell echo "$(VERSION)");branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" != "$(MAIN_BRANCH)" ]; then \
+		echo "Error: You must be on the $(MAIN_BRANCH) branch. Current branch is '$$branch'."; \
+		exit 1; \
+	fi; \
+	git fetch origin $(MAIN_BRANCH); \
+	UPSTREAM=origin/$(MAIN_BRANCH); \
+	LOCAL=$$(git rev-parse @); \
+	REMOTE=$$(git rev-parse "$$UPSTREAM"); \
+	BASE=$$(git merge-base @ "$$UPSTREAM"); \
+	if [ "$$LOCAL" != "$$REMOTE" ]; then \
+	echo "Error: Your local $(MAIN_BRANCH) branch is not up-to-date with remote. Please pull the latest changes."; \
+	exit 1; \
+	fi; \
+	git fetch --tags; \
 	}
 
 release: fetch-tags
 	@{ \
-	  echo "Latest tag: $(LATEST_TAG)"; \
-	  new_tag=$$(go run . utils version-bumper --latest-version "$(LATEST_TAG)" --increment-type=$(VERSION_TYPE)); \
-	  echo "Creating new tag: $$new_tag"; \
-	  git tag -a $$new_tag -m $$new_tag && git push --tags; \
+		echo "Latest tag: $(LATEST_TAG)"; \
+		new_tag=$$(go run . utils version-bumper --latest-version "$(LATEST_TAG)" --increment-type=$(VERSION_TYPE)); \
+		echo "Creating new tag: $$new_tag"; \
+		git tag -a $$new_tag -m $$new_tag && git push --tags; \
 	}
 
 
