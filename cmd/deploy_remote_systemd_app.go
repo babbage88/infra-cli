@@ -13,6 +13,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TODO ensure the remote_utils are being properly embeded in infractl binary, currently this command only seems to work when ran from inside the infra-cli repo and remote_utils are built/present in current directory
+// TODO remote_utils should be built to support multiple OS architectures and selected for the right bin at destination or before copying
+// TODO possibly get rid of the remote_utils seperate binary architecture and just wrap commands needed to execute over ssh.
+// TODO the --env-file should get its values parsed then translated to the systemd file formatted, current just linking to a .env file in the systemd service file definition.
+// TODO I had to manually fix the env-file path in the unit file on destination.
 const (
 	deployUtilsPath           string = "remote_utils/bin"
 	deployUtilsTar            string = "remote_utils.tar.gz"
@@ -116,8 +121,9 @@ var deployFlags DeployFlags
 func init() {
 	curUser, _ := getCurrentUserName()
 	rootCmd.AddCommand(deployCmd)
-
-	// Define flags here
+	// TODO: remove flags that are redundant withe rootCmd flags
+	// TODO the --RemoteDeployment flag should not be used, seperate subcommand should be used to differentiate local and remote deployments
+	// TODO change default values to be null/empty and prompt user for required values
 	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "The name of the application")
 	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
 	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
