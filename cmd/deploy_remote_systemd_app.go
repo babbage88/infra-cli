@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -25,6 +27,7 @@ var deployCmd = &cobra.Command{
 	Short:        "Deploy a Go application as a remote systemd service",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		progressf("starting remote deploy")
 		cfg, err := resolveDeployFlags()
 		if err != nil {
 			return err
@@ -62,6 +65,7 @@ var deployCmd = &cobra.Command{
 			return fmt.Errorf("initialize ssh client: %w", err)
 		}
 		defer appDeployer.SshClient.SshClient.Close()
+		progressf("ssh connected to %s as %s", cfg.RemoteHostName, cfg.RemoteSshUser)
 
 		sourceBinPath, cleanupSource, err := prepareDeploymentSourceBinary(appDeployer, cfg)
 		if err != nil {
@@ -83,6 +87,7 @@ var deployCmd = &cobra.Command{
 			"destination_bin", cfg.DestinationBinary,
 			"env_var_count", len(cfg.EnvVars),
 		)
+		progressf("installing %s to %s", cfg.AppName, cfg.RemoteHostName)
 
 		return appDeployer.InstallApplication()
 	},
@@ -230,6 +235,7 @@ func resolveDeployFlags() (DeployFlags, error) {
 
 func prepareDeploymentSourceBinary(appDeployer *deployer.RemoteSystemdBinDeployer, cfg DeployFlags) (string, func(), error) {
 	if cfg.SourceBin != "" {
+		progressf("using prebuilt binary %s", cfg.SourceBin)
 		return cfg.SourceBin, nil, nil
 	}
 
@@ -237,11 +243,14 @@ func prepareDeploymentSourceBinary(appDeployer *deployer.RemoteSystemdBinDeploye
 	if err != nil {
 		return "", nil, fmt.Errorf("detect remote platform for source build: %w", err)
 	}
+	progressf("remote platform detected as %s/%s", remoteGOOS, remoteGOARCH)
 
 	switch {
 	case cfg.SourceGoModule != "":
+		progressf("building from local Go module %s", cfg.SourceGoModule)
 		return buildGoBinaryFromModule(cfg.SourceGoModule, cfg.SourcePackage, cfg.AppName, remoteGOOS, remoteGOARCH)
 	case cfg.SourceRepo != "":
+		progressf("cloning and building from repo %s", cfg.SourceRepo)
 		return buildGoBinaryFromRepo(cfg.SourceRepo, cfg.SourceRef, cfg.SourcePackage, cfg.AppName, remoteGOOS, remoteGOARCH)
 	default:
 		return "", nil, fmt.Errorf("no deployment source configured")
@@ -293,9 +302,10 @@ func cloneSourceRepo(repoURL, sourceRef string) (string, func(), error) {
 		_ = os.RemoveAll(repoDir)
 	}
 
+	progressf("cloning repo %s into %s", repoURL, repoDir)
 	cloneCmd := exec.Command("git", "clone", repoURL, repoDir)
 	cloneCmd.Env = os.Environ()
-	cloneOutput, err := cloneCmd.CombinedOutput()
+	cloneOutput, err := runStreamingCommand(cloneCmd)
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("clone source repo %q failed: %w: %s\nhint: make sure your git auth is already configured for this repo", repoURL, err, strings.TrimSpace(string(cloneOutput)))
@@ -306,9 +316,10 @@ func cloneSourceRepo(repoURL, sourceRef string) (string, func(), error) {
 		return repoDir, cleanup, nil
 	}
 
+	progressf("checking out source ref %s", sourceRef)
 	checkoutCmd := exec.Command("git", "-C", repoDir, "checkout", sourceRef)
 	checkoutCmd.Env = os.Environ()
-	checkoutOutput, err := checkoutCmd.CombinedOutput()
+	checkoutOutput, err := runStreamingCommand(checkoutCmd)
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("checkout source ref %q failed: %w: %s", sourceRef, err, strings.TrimSpace(string(checkoutOutput)))
@@ -331,7 +342,8 @@ func buildGoBinaryInDir(workDir, sourcePackage, appName, goos, goarch string) (s
 	buildCmd := exec.Command("go", "build", "-o", tmpPath, sourcePackage)
 	buildCmd.Dir = workDir
 	buildCmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
-	buildOutput, err := buildCmd.CombinedOutput()
+	progressf("running go build in %s for %s/%s", workDir, goos, goarch)
+	buildOutput, err := runStreamingCommand(buildCmd)
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return "", nil, fmt.Errorf("build go binary in %q for %s/%s failed: %w: %s", workDir, goos, goarch, err, strings.TrimSpace(string(buildOutput)))
@@ -342,7 +354,19 @@ func buildGoBinaryInDir(workDir, sourcePackage, appName, goos, goarch string) (s
 	}
 
 	slog.Info("Built deployment binary from source", "work_dir", workDir, "source_package", sourcePackage, "goos", goos, "goarch", goarch, "output", tmpPath)
+	progressf("built source binary at %s", tmpPath)
 	return tmpPath, cleanup, nil
+}
+
+func runStreamingCommand(cmd *exec.Cmd) ([]byte, error) {
+	var output bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &output)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &output)
+	return output.Bytes(), cmd.Run()
+}
+
+func progressf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[deploy] "+format+"\n", args...)
 }
 
 func resolveSourceBinPath(sourceDir, sourceBin string) string {
