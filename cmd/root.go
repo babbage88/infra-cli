@@ -48,34 +48,24 @@ func Execute() {
 func init() {
 	// Load default config values
 	apiTokens = make(map[string]string)
-
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"Config file (default is default.yaml)")
-
 	rootCmd.PersistentFlags().BoolVarP(&rawFlag, "raw", "r", false,
 		"Display command output without any color or highlighting.")
-
 	rootCmd.PersistentFlags().StringToStringVar(&apiTokens, "api-tokens", nil,
 		"A string map to store API tokens use provider name as key. eg: api-tokens coudflare='token123'")
-
 	rootCmd.PersistentFlags().StringVar(&jwtAuthToken, "auth-token", "",
 		"JWT Token for authentication with both manager or external WebAPIs")
-
 	rootCmd.PersistentFlags().StringVar(&sshKeyPath, "ssh-key", "",
 		"Path to SSH Key for performing tasks on remote hosts")
-
 	rootCmd.PersistentFlags().StringVar(&sshKeyPass, "ssh-passphrase", "",
 		"Passphrase for ssh-key")
-
 	rootCmd.PersistentFlags().StringVar(&sshRemoteTargetHost, "ssh-remote-host", "",
 		"The remote hostname or IP to run remote functions")
-
 	rootCmd.PersistentFlags().StringVar(&sshRemoteTargetUser, "ssh-remote-user", "",
 		"Username for remote host connection")
-
 	rootCmd.PersistentFlags().BoolVar(&sshUseAgent, "ssh-use-agent", false,
 		"Use ssh-agent for ssh-key auth.")
-
 	rootCmd.PersistentFlags().UintVar(&sshPort, "ssh-port", uint(22),
 		"Port SSH is listening on the remote host")
 
@@ -88,7 +78,7 @@ func init() {
 func initConfig() {
 	err := loadRootConfigFile()
 	if err != nil {
-		pretty.PrintErrorf("error loading root config %s", err.Error())
+		slog.Error("error loading root config file", slog.String("error", err.Error()))
 	}
 
 	rootViperCfg.SetDefault("api_tokens", apiTokens)
@@ -147,8 +137,6 @@ func loadRootConfigFile() error {
 		rootViperCfg.SetConfigFile(cfgFile)
 	} else {
 		rootViperCfg.SetConfigName("default")
-		rootViperCfg.SetConfigType("yaml")
-		rootViperCfg.AddConfigPath(".")
 		rootViperCfg.AddConfigPath(infractldotConfigDir)
 		rootViperCfg.AddConfigPath(".config/infractl")
 	}

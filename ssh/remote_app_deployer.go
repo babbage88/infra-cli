@@ -161,13 +161,13 @@ func (r *RemoteAppDeploymentAgent) RunCommandAndCaptureOutput(remoteCmd string, 
 	combinedOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Println("Error:", err)
-		return nil, err
+		return combinedOutput, err
 	}
 	return combinedOutput, err
 }
 
 func (r *RemoteAppDeploymentAgent) GetEnvarSlice() []string {
-	argEnvars := make([]string, len(r.EnvVars))
+	argEnvars := make([]string, 0, len(r.EnvVars))
 	for k, v := range r.EnvVars {
 		argEnvars = append(argEnvars, fmt.Sprintf("%s=%s", k, v))
 	}

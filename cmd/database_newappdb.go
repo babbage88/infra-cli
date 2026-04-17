@@ -1,23 +1,21 @@
 package cmd
 
 import (
-	"bufio"
 	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
 
 	"github.com/babbage88/goph/v2"
+	"github.com/babbage88/infra-cli/deployer"
 	"github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/lib/pq"
-	"golang.org/x/term"
 )
 
 // expandPath expands ~ to the user's home directory
@@ -119,108 +117,6 @@ func defaultSSHKeyPath() string {
 	return ""
 }
 
-func promptInput(label, defaultValue string) string {
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		if defaultValue != "" {
-			fmt.Printf("%s [%s]: ", label, defaultValue)
-		} else {
-			fmt.Printf("%s: ", label)
-		}
-
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			slog.Error("Failed to read input", "error", err.Error())
-			os.Exit(1)
-		}
-
-		input = strings.TrimSpace(input)
-		if input == "" && defaultValue != "" {
-			return defaultValue
-		}
-		if input != "" {
-			return input
-		}
-	}
-}
-
-func promptPassword(label, defaultValue string) string {
-	for {
-		if defaultValue != "" {
-			fmt.Printf("%s [press enter to use current default]: ", label)
-		} else {
-			fmt.Printf("%s: ", label)
-		}
-
-		var input string
-		if term.IsTerminal(int(os.Stdin.Fd())) {
-			raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-			fmt.Println()
-			if err != nil {
-				slog.Error("Failed to read password", "error", err.Error())
-				os.Exit(1)
-			}
-			input = strings.TrimSpace(string(raw))
-		} else {
-			reader := bufio.NewReader(os.Stdin)
-			raw, err := reader.ReadString('\n')
-			if err != nil {
-				slog.Error("Failed to read password", "error", err.Error())
-				os.Exit(1)
-			}
-			input = strings.TrimSpace(raw)
-		}
-
-		if input == "" && defaultValue != "" {
-			return defaultValue
-		}
-		if input != "" {
-			return input
-		}
-	}
-}
-
-func promptYesNo(label string, defaultYes bool) bool {
-	reader := bufio.NewReader(os.Stdin)
-	defaultLabel := "y/N"
-	if defaultYes {
-		defaultLabel = "Y/n"
-	}
-
-	for {
-		fmt.Printf("%s [%s]: ", label, defaultLabel)
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			slog.Error("Failed to read input", "error", err.Error())
-			os.Exit(1)
-		}
-
-		switch strings.ToLower(strings.TrimSpace(input)) {
-		case "":
-			return defaultYes
-		case "y", "yes":
-			return true
-		case "n", "no":
-			return false
-		}
-	}
-}
-
-func promptForMissingAppConfig(cmd *cobra.Command, dbname, username, password string) (string, string, string) {
-	if !cmd.Flags().Changed("db-name") {
-		dbname = promptInput("Database name", dbname)
-	}
-	if !cmd.Flags().Changed("db-user") {
-		username = promptInput("Database user", username)
-	}
-	if !cmd.Flags().Changed("db-password") {
-		password = promptPassword("Database password", password)
-	}
-
-	return dbname, username, password
-}
-
 func dropAndRecreateDatabaseViaSSH(sshClient *goph.Client, pgUser, dbname string) error {
 	statements := []string{
 		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid();`, pq.QuoteLiteral(dbname)),
@@ -253,281 +149,6 @@ func dropAndRecreateDatabaseDirect(db *sql.DB, dbname string) error {
 	return nil
 }
 
-func buildPostgresURL(host string, port int, dbname, username, password string) string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		urlQueryEscape(username),
-		urlQueryEscape(password),
-		host,
-		port,
-		urlQueryEscape(dbname),
-	)
-}
-
-func urlQueryEscape(value string) string {
-	replacer := strings.NewReplacer(
-		"%", "%25",
-		":", "%3A",
-		"/", "%2F",
-		"?", "%3F",
-		"#", "%23",
-		"[", "%5B",
-		"]", "%5D",
-		"@", "%40",
-	)
-	return replacer.Replace(value)
-}
-
-func runGooseyBinary(gooseyPath, dbURL string) error {
-	gooseyPath = expandPath(gooseyPath)
-	if gooseyPath == "" {
-		return nil
-	}
-
-	if info, err := os.Stat(gooseyPath); err != nil {
-		return fmt.Errorf("stat goosey binary %q: %w", gooseyPath, err)
-	} else if info.IsDir() {
-		return fmt.Errorf("goosey path %q is a directory", gooseyPath)
-	}
-
-	cmd := exec.Command(gooseyPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	cmd.Env = append(
-		os.Environ(),
-		"DATABASE_URL="+dbURL,
-		"GOOSE_DBSTRING="+dbURL,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run goosey binary %q: %w", gooseyPath, err)
-	}
-
-	return nil
-}
-
-func maybeBuildRemoteGooseyBinary(gooseyPath string, buildRemote bool, goos, goarch string) (string, func(), error) {
-	gooseyPath = expandPath(gooseyPath)
-	if gooseyPath == "" || !buildRemote {
-		return gooseyPath, func() {}, nil
-	}
-
-	sourceDir := filepath.Dir(gooseyPath)
-	info, err := os.Stat(sourceDir)
-	if err != nil {
-		return "", nil, fmt.Errorf("stat goosey source directory %q: %w", sourceDir, err)
-	}
-	if !info.IsDir() {
-		return "", nil, fmt.Errorf("goosey source directory %q is not a directory", sourceDir)
-	}
-
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("goosey-%s-%s-*", goos, goarch))
-	if err != nil {
-		return "", nil, fmt.Errorf("create temp goosey binary: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
-		return "", nil, fmt.Errorf("close temp goosey binary: %w", err)
-	}
-
-	buildCmd := exec.Command("go", "build", "-o", tmpPath, ".")
-	buildCmd.Dir = sourceDir
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
-	buildCmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
-
-	if err := buildCmd.Run(); err != nil {
-		os.Remove(tmpPath)
-		return "", nil, fmt.Errorf("build remote goosey binary for %s/%s from %q: %w", goos, goarch, sourceDir, err)
-	}
-
-	cleanup := func() {
-		_ = os.Remove(tmpPath)
-	}
-
-	return tmpPath, cleanup, nil
-}
-
-func runGooseyBinaryRemote(sshClient *goph.Client, gooseyPath, dbURL string) error {
-	gooseyPath = expandPath(gooseyPath)
-	if gooseyPath == "" {
-		return nil
-	}
-
-	info, err := os.Stat(gooseyPath)
-	if err != nil {
-		return fmt.Errorf("stat goosey binary %q: %w", gooseyPath, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("goosey path %q is a directory", gooseyPath)
-	}
-
-	remotePath := filepath.ToSlash(filepath.Join("/tmp", fmt.Sprintf("goosey-%d", os.Getpid())))
-	if err := sshClient.Upload(gooseyPath, remotePath); err != nil {
-		return fmt.Errorf("upload goosey binary to remote host: %w", err)
-	}
-
-	cleanupCmd := fmt.Sprintf("rm -f %s", shellQuote(remotePath))
-	defer func() {
-		if _, cleanupErr := sshClient.Run(cleanupCmd); cleanupErr != nil {
-			slog.Warn("Failed to remove remote goosey binary", "path", remotePath, "error", cleanupErr.Error())
-		}
-	}()
-
-	cmdStr := fmt.Sprintf(
-		"chmod 755 %s && env DATABASE_URL=%s GOOSE_DBSTRING=%s %s",
-		shellQuote(remotePath),
-		shellQuote(dbURL),
-		shellQuote(dbURL),
-		shellQuote(remotePath),
-	)
-
-	out, err := sshClient.Run(cmdStr)
-	if err != nil {
-		output := strings.TrimSpace(string(out))
-		if strings.Contains(output, "cannot execute binary file") {
-			return fmt.Errorf(
-				"remote goosey binary is not executable on the target host; this usually means it was built for the wrong OS/architecture. Build a Linux binary for the remote host and try again: %s",
-				output,
-			)
-		}
-		return formatSSHExecError(fmt.Errorf("run remote goosey binary: %w", err), out)
-	}
-
-	return nil
-}
-
-func setupRemotePostgresAccess(sshClient *goph.Client, hbaCIDR, authMethod, listenAddresses string) error {
-	findCmd := `find /etc/postgresql /etc/postgresql/*/main /var/lib/pgsql /var/lib/postgresql /var/lib/postgres -type f \( -name "postgresql.conf" -o -name "pg_hba.conf" \) 2>/dev/null`
-	out, err := sshClient.Run(findCmd)
-
-	var postgresqlConfPath, pgHbaConfPath string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasSuffix(line, "postgresql.conf") && postgresqlConfPath == "":
-			postgresqlConfPath = line
-		case strings.HasSuffix(line, "pg_hba.conf") && pgHbaConfPath == "":
-			pgHbaConfPath = line
-		}
-	}
-
-	if err != nil && (postgresqlConfPath == "" || pgHbaConfPath == "") {
-		return formatSSHExecError(fmt.Errorf("find postgres config files: %w", err), out)
-	}
-
-	if postgresqlConfPath == "" || pgHbaConfPath == "" {
-		return fmt.Errorf("could not locate postgresql.conf or pg_hba.conf on remote host")
-	}
-
-	listenScript := fmt.Sprintf(
-		`if grep -Eq "^[#[:space:]]*listen_addresses[[:space:]]*=" %s; then sed -i "s/^[#[:space:]]*listen_addresses[[:space:]]*=.*/listen_addresses = %s/" %s; else printf "\nlisten_addresses = %s\n" >> %s; fi`,
-		shellQuote(postgresqlConfPath),
-		shellQuote(listenAddresses),
-		shellQuote(postgresqlConfPath),
-		shellQuote(listenAddresses),
-		shellQuote(postgresqlConfPath),
-	)
-	listenCmd := "sudo sh -c " + shellQuote(listenScript)
-	if out, err = sshClient.Run(listenCmd); err != nil {
-		return formatSSHExecError(fmt.Errorf("configure listen_addresses: %w", err), out)
-	}
-
-	passwordEncScript := fmt.Sprintf(
-		`if grep -Eq "^[#[:space:]]*password_encryption[[:space:]]*=" %s; then sed -i "s/^[#[:space:]]*password_encryption[[:space:]]*=.*/password_encryption = %s/" %s; else printf "\npassword_encryption = %s\n" >> %s; fi`,
-		shellQuote(postgresqlConfPath),
-		shellQuote("scram-sha-256"),
-		shellQuote(postgresqlConfPath),
-		shellQuote("scram-sha-256"),
-		shellQuote(postgresqlConfPath),
-	)
-	passwordEncCmd := "sudo sh -c " + shellQuote(passwordEncScript)
-	if out, err = sshClient.Run(passwordEncCmd); err != nil {
-		return formatSSHExecError(fmt.Errorf("configure password_encryption: %w", err), out)
-	}
-
-	hbaRule := fmt.Sprintf("host all all %s %s", hbaCIDR, authMethod)
-	hbaScript := fmt.Sprintf(
-		`grep -Fqx %s %s || printf "\n%s\n" >> %s`,
-		shellQuote(hbaRule),
-		shellQuote(pgHbaConfPath),
-		hbaRule,
-		shellQuote(pgHbaConfPath),
-	)
-	hbaCmd := "sudo sh -c " + shellQuote(hbaScript)
-	if out, err = sshClient.Run(hbaCmd); err != nil {
-		return formatSSHExecError(fmt.Errorf("update pg_hba.conf: %w", err), out)
-	}
-
-	if err := restartRemotePostgresService(sshClient, postgresqlConfPath); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func restartRemotePostgresService(sshClient *goph.Client, postgresqlConfPath string) error {
-	dataDir := filepath.ToSlash(filepath.Dir(postgresqlConfPath))
-	versionCandidate := ""
-	parts := strings.Split(dataDir, "/")
-	for i, part := range parts {
-		if part == "pgsql" && i+1 < len(parts) && parts[i+1] != "" {
-			versionCandidate = parts[i+1]
-			break
-		}
-	}
-
-	candidates := []string{
-		"postgresql",
-		"postgresql.service",
-	}
-	if versionCandidate != "" {
-		candidates = append(candidates, "postgresql-"+versionCandidate, "postgresql-"+versionCandidate+".service")
-	}
-
-	restartScript := fmt.Sprintf(
-		`set -e
-for svc in %s $(systemctl list-unit-files 'postgresql*' --type=service --no-legend 2>/dev/null | awk '{print $1}') $(systemctl list-units --all 'postgresql*' --type=service --no-legend 2>/dev/null | awk '{print $1}'); do
-  [ -n "$svc" ] || continue
-  if sudo systemctl restart "$svc" >/dev/null 2>&1; then
-    exit 0
-  fi
-done
-if command -v pg_ctl >/dev/null 2>&1; then
-  sudo -u postgres pg_ctl -D %s restart >/dev/null 2>&1 && exit 0
-fi
-if command -v service >/dev/null 2>&1; then
-  sudo service postgresql restart >/dev/null 2>&1 && exit 0
-fi
-echo "Unable to restart PostgreSQL service. Tried systemd units and pg_ctl for data dir %s." >&2
-exit 1`,
-		shellJoinWords(candidates),
-		shellQuote(dataDir),
-		dataDir,
-	)
-
-	restartCmd := "sh -c " + shellQuote(restartScript)
-	out, err := sshClient.Run(restartCmd)
-	if err != nil {
-		return formatSSHExecError(fmt.Errorf("restart postgresql service: %w", err), out)
-	}
-
-	return nil
-}
-
-func shellJoinWords(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) == "" {
-			continue
-		}
-		quoted = append(quoted, shellQuote(value))
-	}
-	return strings.Join(quoted, " ")
-}
-
 var newAppDBCmd = &cobra.Command{
 	Use:   "new-appdb",
 	Short: "Create a new PostgreSQL database and service user for an application",
@@ -543,12 +164,15 @@ var newAppDBCmd = &cobra.Command{
 		pgDb := viper.GetString("postgres_conn_db")
 		pgPassword := viper.GetString("postgres_password")
 		connectSSH := viper.GetBool("connect_ssh")
-		sshHost := viper.GetString("ssh_host")
-		sshUser := viper.GetString("ssh_user")
-		sshKey := expandPath(viper.GetString("ssh_key"))
-		sshPassphrase := viper.GetString("ssh_passphrase")
-		useSshAgent := viper.GetBool("ssh_agent")
-		sshPort := viper.GetInt("ssh_port")
+		sshHost := rootViperCfg.GetString("ssh_remote_host")
+		sshUser := rootViperCfg.GetString("ssh_remote_user")
+		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
+		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
+		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
+		sshPort := int(rootViperCfg.GetUint("ssh_port"))
+		if sshPort == 0 {
+			sshPort = 22
+		}
 		gooseyPath := viper.GetString("goosey_path")
 		gooseyRunRemote := viper.GetBool("goosey_run_remote")
 		gooseyBuildRemote := viper.GetBool("goosey_build_remote")
@@ -570,7 +194,7 @@ var newAppDBCmd = &cobra.Command{
 		// SSH-based execution path
 		if connectSSH {
 			if sshHost == "" {
-				slog.Error("SSH host is required when using --connect-ssh")
+				slog.Error("SSH host is required when using --connect-ssh", "hint", "set the global --ssh-remote-host flag")
 				os.Exit(1)
 			}
 			if sshUser == "" {
@@ -600,7 +224,7 @@ var newAppDBCmd = &cobra.Command{
 					"hba_cidr", remotePostgresCIDR,
 					"auth_method", remotePostgresAuthMethod,
 				)
-				if err := setupRemotePostgresAccess(sshClient, remotePostgresCIDR, remotePostgresAuthMethod, remotePostgresListenAddresses); err != nil {
+				if err := deployer.ConfigureRemotePostgresAccess(sshClient, remotePostgresCIDR, remotePostgresAuthMethod, remotePostgresListenAddresses); err != nil {
 					slog.Error("Failed configuring remote PostgreSQL access", "error", err.Error())
 					os.Exit(1)
 				}
@@ -915,12 +539,6 @@ func init() {
 	newAppDBCmd.Flags().String("remote-postgres-hba-cidr", "0.0.0.0/0", "CIDR to add to pg_hba.conf when enabling remote PostgreSQL access")
 	newAppDBCmd.Flags().String("remote-postgres-auth-method", "scram-sha-256", "Authentication method to add to pg_hba.conf when enabling remote PostgreSQL access")
 	newAppDBCmd.Flags().String("remote-postgres-listen-addresses", "*", "listen_addresses value to set in postgresql.conf when enabling remote PostgreSQL access")
-	newAppDBCmd.Flags().String("ssh-host", "", "SSH host to connect to (required when using --connect-ssh)")
-	newAppDBCmd.Flags().String("ssh-user", "", "SSH username (defaults to current user if not specified)")
-	newAppDBCmd.Flags().String("ssh-key", "", "Path to SSH private key")
-	newAppDBCmd.Flags().String("ssh-passphrase", "", "SSH key passphrase")
-	newAppDBCmd.Flags().Bool("ssh-agent", false, "Use SSH agent for authentication")
-	newAppDBCmd.Flags().Int("ssh-port", 22, "SSH port")
 
 	viper.BindPFlag("db_name", newAppDBCmd.Flags().Lookup("db-name"))
 	viper.BindPFlag("db_user", newAppDBCmd.Flags().Lookup("db-user"))
@@ -942,12 +560,6 @@ func init() {
 	viper.BindPFlag("remote_postgres_hba_cidr", newAppDBCmd.Flags().Lookup("remote-postgres-hba-cidr"))
 	viper.BindPFlag("remote_postgres_auth_method", newAppDBCmd.Flags().Lookup("remote-postgres-auth-method"))
 	viper.BindPFlag("remote_postgres_listen_addresses", newAppDBCmd.Flags().Lookup("remote-postgres-listen-addresses"))
-	viper.BindPFlag("ssh_host", newAppDBCmd.Flags().Lookup("ssh-host"))
-	viper.BindPFlag("ssh_user", newAppDBCmd.Flags().Lookup("ssh-user"))
-	viper.BindPFlag("ssh_key", newAppDBCmd.Flags().Lookup("ssh-key"))
-	viper.BindPFlag("ssh_passphrase", newAppDBCmd.Flags().Lookup("ssh-passphrase"))
-	viper.BindPFlag("ssh_agent", newAppDBCmd.Flags().Lookup("ssh-agent"))
-	viper.BindPFlag("ssh_port", newAppDBCmd.Flags().Lookup("ssh-port"))
 
 	viper.AutomaticEnv()
 

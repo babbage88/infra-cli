@@ -1,3 +1,4 @@
+dist/**
 dist/infractl
 pve.yaml
 setup.sh
