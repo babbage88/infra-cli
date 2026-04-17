@@ -287,11 +287,15 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 
 	slog.Info("Remote temp path for utils", slog.String("remote-utils-path", remoteUtilsPath))
 
-	// Create remote install dir
-	sudo := true
-	err = r.MakeInstallDir(sudo, []string{r.InstallDir, r.SystemdDir, remoteUtilsPath})
+	// Create privileged destination dirs with sudo.
+	err = r.MakeInstallDir(true, []string{r.InstallDir, r.SystemdDir})
 	if err != nil {
 		return fmt.Errorf("error creating remote path %w", err)
+	}
+	// Create temporary staging dirs as the SSH user so SFTP uploads can write to them.
+	err = r.MakeInstallDir(false, []string{remoteUtilsPath})
+	if err != nil {
+		return fmt.Errorf("error creating remote temp path %w", err)
 	}
 
 	// Upload application binary

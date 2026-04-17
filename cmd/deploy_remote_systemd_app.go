@@ -34,9 +34,6 @@ var deployCmd = &cobra.Command{
 		}
 
 		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
 
 		serviceAccount := map[int64]string{
 			cfg.ServiceUid: cfg.ServiceUser,

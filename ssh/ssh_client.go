@@ -7,8 +7,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/babbage88/goph/v2"
+	sshconfig "github.com/kevinburke/ssh_config"
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
@@ -21,6 +24,10 @@ type RemoteAppDeploymentAgent struct {
 }
 
 func VerifyHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
+	return verifyKnownHost(host, remote, key)
+}
+
+func verifyKnownHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
 	//
 	// If you want to connect to new hosts.
 	// here your should check new connections public keys
@@ -53,24 +60,136 @@ func VerifyHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
 }
 
 func initializeSshClient(host string, user string, port uint, sshKeyPath string, sshPassphrase string, agent bool) (*goph.Client, error) {
+	originalHost := host
+	explicitKeyProvided := strings.TrimSpace(sshKeyPath) != ""
+	host, user, port, sshKeyPath = resolveSSHConfig(host, user, port, sshKeyPath)
+	authSource := determineSSHAuthSource(explicitKeyProvided, sshKeyPath, agent)
+	slog.Info("SSH auth selection", "alias", originalHost, "hostname", host, "user", user, "port", port, "auth_source", authSource, "ssh_key", sshKeyPath, "ssh_agent_requested", agent, "ssh_agent_available", goph.HasAgent())
+
 	auth, err := buildSSHAuthMethods(sshKeyPath, sshPassphrase, agent)
 	if err != nil {
 		return nil, err
 	}
 
+	callback := makeHostKeyCallback(originalHost, host)
 	client, err := goph.NewConn(&goph.Config{
 		User:     user,
 		Addr:     host,
 		Port:     port,
 		Auth:     auth,
 		Timeout:  goph.DefaultTimeout,
-		Callback: VerifyHost,
+		Callback: callback,
 	})
 	if err != nil {
 		return nil, err
 	}
 	// Defer closing the network connection.
 	return client, err
+}
+
+func makeHostKeyCallback(originalHost, resolvedHost string) func(string, net.Addr, cryptossh.PublicKey) error {
+	return func(_ string, remote net.Addr, key cryptossh.PublicKey) error {
+		hostForVerification := originalHost
+		if strings.TrimSpace(hostForVerification) == "" {
+			hostForVerification = resolvedHost
+		}
+
+		return verifyKnownHost(hostForVerification, remote, key)
+	}
+}
+
+func resolveSSHConfig(host, user string, port uint, sshKeyPath string) (string, string, uint, string) {
+	if strings.TrimSpace(host) == "" {
+		return host, user, port, sshKeyPath
+	}
+
+	allowConfigIdentityFile := strings.TrimSpace(sshKeyPath) == "" || isAutoDetectedDefaultSSHKeyPath(sshKeyPath)
+	resolvedHost := strings.TrimSpace(sshconfig.Get(host, "HostName"))
+	if resolvedHost == "" {
+		resolvedHost = host
+	}
+
+	if strings.TrimSpace(user) == "" {
+		if configUser := strings.TrimSpace(sshconfig.Get(host, "User")); configUser != "" {
+			user = configUser
+		}
+	}
+
+	if configPort := strings.TrimSpace(sshconfig.Get(host, "Port")); configPort != "" {
+		if port == 0 || port == 22 {
+			if parsedPort, err := strconv.ParseUint(configPort, 10, 16); err == nil {
+				port = uint(parsedPort)
+			}
+		}
+	}
+
+	if allowConfigIdentityFile {
+		for _, identityFile := range sshconfig.GetAll(host, "IdentityFile") {
+			expanded := expandSSHConfigPath(identityFile)
+			if expanded == "" {
+				continue
+			}
+			if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
+				sshKeyPath = expanded
+				break
+			}
+		}
+	}
+
+	if resolvedHost != host {
+		slog.Info("Resolved SSH host via ~/.ssh/config", "alias", host, "hostname", resolvedHost, "user", user, "port", port, "ssh_key", sshKeyPath)
+	}
+
+	return resolvedHost, user, port, sshKeyPath
+}
+
+func isAutoDetectedDefaultSSHKeyPath(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+
+	for _, candidate := range resolveSSHKeyPaths("") {
+		if candidate == path {
+			return true
+		}
+	}
+
+	return false
+}
+
+func determineSSHAuthSource(explicitKeyProvided bool, sshKeyPath string, agentRequested bool) string {
+	switch {
+	case explicitKeyProvided && strings.TrimSpace(sshKeyPath) != "":
+		return "explicit-key"
+	case strings.TrimSpace(sshKeyPath) != "" && !isAutoDetectedDefaultSSHKeyPath(sshKeyPath):
+		return "ssh-config-identityfile"
+	case strings.TrimSpace(sshKeyPath) != "":
+		if agentRequested || goph.HasAgent() {
+			return "default-key+agent"
+		}
+		return "default-key"
+	case agentRequested || goph.HasAgent():
+		return "agent-only"
+	default:
+		return "none"
+	}
+}
+
+func expandSSHConfigPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil && homeDir != "" {
+			return filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
+		}
+	}
+
+	return os.ExpandEnv(path)
 }
 
 func buildSSHAuthMethods(sshKeyPath string, sshPassphrase string, useAgent bool) (goph.Auth, error) {
