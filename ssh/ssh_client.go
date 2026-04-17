@@ -12,6 +12,7 @@ import (
 
 	"github.com/babbage88/goph/v2"
 	sshconfig "github.com/kevinburke/ssh_config"
+	skknownhosts "github.com/skeema/knownhosts"
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
@@ -24,39 +25,7 @@ type RemoteAppDeploymentAgent struct {
 }
 
 func VerifyHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
-	return verifyKnownHost(host, remote, key)
-}
-
-func verifyKnownHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
-	//
-	// If you want to connect to new hosts.
-	// here your should check new connections public keys
-	// if the key not trusted you shuld return an error
-	//
-
-	// hostFound: is host in known hosts file.
-	// err: error if key not in known hosts file OR host in known hosts file but key changed!
-	hostFound, err := goph.CheckKnownHost(host, remote, key, "")
-
-	// Host in known hosts but key mismatch!
-	// Maybe because of MAN IN THE MIDDLE ATTACK!
-	if hostFound && err != nil {
-		return err
-	}
-
-	// handshake because public key already exists.
-	if hostFound && err == nil {
-		return nil
-	}
-
-	// Ask user to check if he trust the host public key.
-	if askIsHostTrusted(host, key) == false {
-		// Make sure to return error on non trusted keys.
-		return errors.New("you typed no, aborted!")
-	}
-
-	// Add the new host to known hosts file.
-	return goph.AddKnownHost(host, remote, key, "")
+	return verifyKnownHost(host, host, remote, key)
 }
 
 func initializeSshClient(host string, user string, port uint, sshKeyPath string, sshPassphrase string, agent bool) (*goph.Client, error) {
@@ -89,12 +58,7 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 
 func makeHostKeyCallback(originalHost, resolvedHost string) func(string, net.Addr, cryptossh.PublicKey) error {
 	return func(_ string, remote net.Addr, key cryptossh.PublicKey) error {
-		hostForVerification := originalHost
-		if strings.TrimSpace(hostForVerification) == "" {
-			hostForVerification = resolvedHost
-		}
-
-		return verifyKnownHost(hostForVerification, remote, key)
+		return verifyKnownHost(originalHost, resolvedHost, remote, key)
 	}
 }
 
@@ -190,6 +154,162 @@ func expandSSHConfigPath(path string) string {
 	}
 
 	return os.ExpandEnv(path)
+}
+
+func verifyKnownHost(originalHost, resolvedHost string, remote net.Addr, key cryptossh.PublicKey) error {
+	hostsToTry := uniqueNonEmptyHosts(originalHost, resolvedHost)
+	knownHostsFiles := resolveKnownHostsFiles(originalHost, resolvedHost)
+
+	for _, host := range hostsToTry {
+		matched, err := checkKnownHost(host, remote, key, knownHostsFiles)
+		if err != nil {
+			return err
+		}
+		if matched {
+			return nil
+		}
+	}
+
+	promptHost := originalHost
+	if strings.TrimSpace(promptHost) == "" {
+		promptHost = resolvedHost
+	}
+	if askIsHostTrusted(promptHost, key) == false {
+		return errors.New("you typed no, aborted!")
+	}
+
+	if err := appendKnownHosts(hostsToTry, remote, key, knownHostsFiles); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkKnownHost(host string, remote net.Addr, key cryptossh.PublicKey, knownHostsFiles []string) (bool, error) {
+	existingFiles := existingKnownHostsFiles(knownHostsFiles)
+	if len(existingFiles) == 0 {
+		return false, nil
+	}
+
+	callback, err := skknownhosts.New(existingFiles...)
+	if err != nil {
+		return false, fmt.Errorf("load known_hosts files: %w", err)
+	}
+
+	hostWithPort := knownHostTarget(host, remote)
+	err = callback(hostWithPort, remote, key)
+	if err == nil {
+		return true, nil
+	}
+	if skknownhosts.IsHostUnknown(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+func appendKnownHosts(hosts []string, remote net.Addr, key cryptossh.PublicKey, knownHostsFiles []string) error {
+	targetFile := primaryKnownHostsFile(knownHostsFiles)
+	if targetFile == "" {
+		return fmt.Errorf("no known_hosts file available for writing")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetFile), 0o700); err != nil {
+		return fmt.Errorf("create known_hosts directory: %w", err)
+	}
+
+	file, err := os.OpenFile(targetFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open known_hosts file %q: %w", targetFile, err)
+	}
+	defer file.Close()
+
+	for _, host := range hosts {
+		if err := skknownhosts.WriteKnownHost(file, host, remote, key); err != nil {
+			return fmt.Errorf("write host %q to known_hosts: %w", host, err)
+		}
+	}
+
+	return nil
+}
+
+func resolveKnownHostsFiles(originalHost, resolvedHost string) []string {
+	configHost := strings.TrimSpace(originalHost)
+	if configHost == "" {
+		configHost = strings.TrimSpace(resolvedHost)
+	}
+
+	var files []string
+	if configHost != "" {
+		for _, value := range sshconfig.GetAll(configHost, "UserKnownHostsFile") {
+			expanded := expandSSHConfigPath(value)
+			if expanded == "" || strings.EqualFold(expanded, "none") {
+				continue
+			}
+			files = append(files, expanded)
+		}
+	}
+	if len(files) > 0 {
+		return uniqueNonEmptyHosts(files...)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return nil
+	}
+
+	return []string{filepath.Join(homeDir, ".ssh", "known_hosts")}
+}
+
+func existingKnownHostsFiles(files []string) []string {
+	existing := make([]string, 0, len(files))
+	for _, file := range files {
+		if info, err := os.Stat(file); err == nil && !info.IsDir() {
+			existing = append(existing, file)
+		}
+	}
+	return existing
+}
+
+func primaryKnownHostsFile(files []string) string {
+	for _, file := range files {
+		file = strings.TrimSpace(file)
+		if file != "" {
+			return file
+		}
+	}
+	return ""
+}
+
+func knownHostTarget(host string, remote net.Addr) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return host
+	}
+
+	_, port, err := net.SplitHostPort(remote.String())
+	if err != nil || port == "" {
+		return host
+	}
+
+	return net.JoinHostPort(host, port)
+}
+
+func uniqueNonEmptyHosts(values ...string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func buildSSHAuthMethods(sshKeyPath string, sshPassphrase string, useAgent bool) (goph.Auth, error) {
