@@ -742,6 +742,10 @@ func (r *RemoteSystemdBinDeployer) detectRemotePlatform() (string, string, error
 	return goos, goarch, nil
 }
 
+func (r *RemoteSystemdBinDeployer) DetectRemotePlatform() (string, string, error) {
+	return r.detectRemotePlatform()
+}
+
 func normalizeRemoteGOOS(raw string) (string, error) {
 	switch strings.ToLower(raw) {
 	case "linux":

@@ -37,6 +37,29 @@ func promptInput(label, defaultValue string) string {
 	}
 }
 
+func promptOptionalInput(label, defaultValue string) string {
+	reader := bufio.NewReader(os.Stdin)
+
+	if defaultValue != "" {
+		fmt.Printf("%s [%s]: ", label, defaultValue)
+	} else {
+		fmt.Printf("%s: ", label)
+	}
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		slog.Error("Failed to read input", "error", err.Error())
+		os.Exit(1)
+	}
+
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultValue
+	}
+
+	return input
+}
+
 func promptPassword(label, defaultValue string) string {
 	for {
 		if defaultValue != "" {

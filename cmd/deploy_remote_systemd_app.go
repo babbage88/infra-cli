@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -62,6 +63,15 @@ var deployCmd = &cobra.Command{
 		}
 		defer appDeployer.SshClient.SshClient.Close()
 
+		sourceBinPath, cleanupSource, err := prepareDeploymentSourceBinary(appDeployer, cfg)
+		if err != nil {
+			return err
+		}
+		if cleanupSource != nil {
+			defer cleanupSource()
+		}
+		appDeployer.SourceBin = sourceBinPath
+
 		slog.Info(
 			"Ensuring remote systemd application is installed",
 			"host", cfg.RemoteHostName,
@@ -69,7 +79,7 @@ var deployCmd = &cobra.Command{
 			"app_name", cfg.AppName,
 			"install_dir", cfg.InstallDir,
 			"systemd_dir", cfg.SystemdDir,
-			"source_bin", cfg.SourceBin,
+			"source_bin", appDeployer.SourceBin,
 			"destination_bin", cfg.DestinationBinary,
 			"env_var_count", len(cfg.EnvVars),
 		)
@@ -78,7 +88,6 @@ var deployCmd = &cobra.Command{
 	},
 }
 
-// Struct for storing deployment flags
 type DeployFlags struct {
 	RemoteHostName    string            `mapstructure:"remote-host"`
 	RemoteSshUser     string            `mapstructure:"remote-ssh-user"`
@@ -93,6 +102,10 @@ type DeployFlags struct {
 	SystemdDir        string            `mapstructure:"systemd-dir"`
 	SourceDir         string            `mapstructure:"source-dir"`
 	SourceBin         string            `mapstructure:"source-bin"`
+	SourceGoModule    string            `mapstructure:"source-go-module"`
+	SourceRepo        string            `mapstructure:"source-repo"`
+	SourceRef         string            `mapstructure:"source-ref"`
+	SourcePackage     string            `mapstructure:"source-package"`
 	SourceExcludes    []string          `mapstructure:"exclude-files"`
 	RemoteDeployment  bool              `mapstructure:"remote-deployment"`
 	DeployBinary      bool              `mapstructure:"deploy-binary"`
@@ -115,7 +128,11 @@ func init() {
 	deployCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", "Optional env file to merge into the remote service env file")
 	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", defaultSystemdDir, "Directory where systemd unit files are stored")
 	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Local source directory for the application")
-	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "", "Local binary to upload; defaults to app-name, resolved relative to source-dir when present")
+	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "", "Local binary to upload directly")
+	deployCmd.Flags().StringVar(&deployFlags.SourceGoModule, "source-go-module", "", "Local Go module directory to build before deploying")
+	deployCmd.Flags().StringVar(&deployFlags.SourceRepo, "source-repo", "", "Git repository URL to clone and build before deploying")
+	deployCmd.Flags().StringVar(&deployFlags.SourceRef, "source-ref", "", "Optional git branch, tag, or commit to build from when using --source-repo")
+	deployCmd.Flags().StringVar(&deployFlags.SourcePackage, "source-package", ".", "Go package to build within the module or repo")
 	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", "", "Remote host to deploy to; defaults to global --ssh-remote-host")
 	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Deprecated: remote deployment is always used by this command")
 	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging")
@@ -164,8 +181,8 @@ func resolveDeployFlags() (DeployFlags, error) {
 	if cfg.SourceDir == "" {
 		cfg.SourceDir = "."
 	}
-	if cfg.SourceBin == "" {
-		cfg.SourceBin = cfg.AppName
+	if cfg.SourcePackage == "" {
+		cfg.SourcePackage = "."
 	}
 
 	if cfg.EnvFile != "" {
@@ -181,8 +198,151 @@ func resolveDeployFlags() (DeployFlags, error) {
 		cfg.EnvVars = map[string]string{}
 	}
 
-	cfg.SourceBin = resolveSourceBinPath(cfg.SourceDir, cfg.SourceBin)
+	sourceModeCount := 0
+	if cfg.SourceBin != "" {
+		sourceModeCount++
+	}
+	if cfg.SourceGoModule != "" {
+		sourceModeCount++
+	}
+	if cfg.SourceRepo != "" {
+		sourceModeCount++
+	}
+	if sourceModeCount > 1 {
+		return cfg, fmt.Errorf("choose only one source mode: --source-bin, --source-go-module, or --source-repo")
+	}
+	if sourceModeCount == 0 {
+		cfg.SourceBin = cfg.AppName
+	}
+
+	if cfg.SourceBin != "" {
+		cfg.SourceBin = resolveSourceBinPath(cfg.SourceDir, cfg.SourceBin)
+	}
+	if cfg.SourceGoModule != "" {
+		cfg.SourceGoModule = expandPath(cfg.SourceGoModule)
+	}
+	if cfg.SourceRepo != "" && cfg.SourceRef == "" {
+		cfg.SourceRef = promptOptionalInput("Git ref to build [press enter for default branch]", "")
+	}
+
 	return cfg, nil
+}
+
+func prepareDeploymentSourceBinary(appDeployer *deployer.RemoteSystemdBinDeployer, cfg DeployFlags) (string, func(), error) {
+	if cfg.SourceBin != "" {
+		return cfg.SourceBin, nil, nil
+	}
+
+	remoteGOOS, remoteGOARCH, err := appDeployer.DetectRemotePlatform()
+	if err != nil {
+		return "", nil, fmt.Errorf("detect remote platform for source build: %w", err)
+	}
+
+	switch {
+	case cfg.SourceGoModule != "":
+		return buildGoBinaryFromModule(cfg.SourceGoModule, cfg.SourcePackage, cfg.AppName, remoteGOOS, remoteGOARCH)
+	case cfg.SourceRepo != "":
+		return buildGoBinaryFromRepo(cfg.SourceRepo, cfg.SourceRef, cfg.SourcePackage, cfg.AppName, remoteGOOS, remoteGOARCH)
+	default:
+		return "", nil, fmt.Errorf("no deployment source configured")
+	}
+}
+
+func buildGoBinaryFromModule(moduleDir, sourcePackage, appName, goos, goarch string) (string, func(), error) {
+	moduleDir = expandPath(moduleDir)
+	info, err := os.Stat(moduleDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat source go module %q: %w", moduleDir, err)
+	}
+	if !info.IsDir() {
+		return "", nil, fmt.Errorf("source go module %q is not a directory", moduleDir)
+	}
+
+	return buildGoBinaryInDir(moduleDir, sourcePackage, appName, goos, goarch)
+}
+
+func buildGoBinaryFromRepo(repoURL, sourceRef, sourcePackage, appName, goos, goarch string) (string, func(), error) {
+	repoDir, cleanupRepo, err := cloneSourceRepo(repoURL, sourceRef)
+	if err != nil {
+		return "", nil, err
+	}
+
+	binaryPath, cleanupBinary, err := buildGoBinaryInDir(repoDir, sourcePackage, appName, goos, goarch)
+	if err != nil {
+		cleanupRepo()
+		return "", nil, err
+	}
+
+	cleanup := func() {
+		if cleanupBinary != nil {
+			cleanupBinary()
+		}
+		cleanupRepo()
+	}
+
+	return binaryPath, cleanup, nil
+}
+
+func cloneSourceRepo(repoURL, sourceRef string) (string, func(), error) {
+	repoDir, err := os.MkdirTemp("", "infractl-source-repo-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp directory for source repo: %w", err)
+	}
+
+	cleanup := func() {
+		_ = os.RemoveAll(repoDir)
+	}
+
+	cloneCmd := exec.Command("git", "clone", repoURL, repoDir)
+	cloneCmd.Env = os.Environ()
+	cloneOutput, err := cloneCmd.CombinedOutput()
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("clone source repo %q failed: %w: %s\nhint: make sure your git auth is already configured for this repo", repoURL, err, strings.TrimSpace(string(cloneOutput)))
+	}
+
+	if sourceRef == "" {
+		slog.Warn("No source ref specified; building from the repository default branch", "source_repo", repoURL)
+		return repoDir, cleanup, nil
+	}
+
+	checkoutCmd := exec.Command("git", "-C", repoDir, "checkout", sourceRef)
+	checkoutCmd.Env = os.Environ()
+	checkoutOutput, err := checkoutCmd.CombinedOutput()
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("checkout source ref %q failed: %w: %s", sourceRef, err, strings.TrimSpace(string(checkoutOutput)))
+	}
+
+	return repoDir, cleanup, nil
+}
+
+func buildGoBinaryInDir(workDir, sourcePackage, appName, goos, goarch string) (string, func(), error) {
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("%s-%s-%s-*", appName, goos, goarch))
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp build output: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", nil, fmt.Errorf("close temp build output: %w", err)
+	}
+
+	buildCmd := exec.Command("go", "build", "-o", tmpPath, sourcePackage)
+	buildCmd.Dir = workDir
+	buildCmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
+	buildOutput, err := buildCmd.CombinedOutput()
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return "", nil, fmt.Errorf("build go binary in %q for %s/%s failed: %w: %s", workDir, goos, goarch, err, strings.TrimSpace(string(buildOutput)))
+	}
+
+	cleanup := func() {
+		_ = os.Remove(tmpPath)
+	}
+
+	slog.Info("Built deployment binary from source", "work_dir", workDir, "source_package", sourcePackage, "goos", goos, "goarch", goarch, "output", tmpPath)
+	return tmpPath, cleanup, nil
 }
 
 func resolveSourceBinPath(sourceDir, sourceBin string) string {
@@ -210,7 +370,6 @@ func mergeStringMaps(base, overrides map[string]string) map[string]string {
 }
 
 func formatEnvVars(envVars map[string]string) string {
-	// Format environment variables for systemd unit file
 	var formattedVars []string
 	for key, value := range envVars {
 		envLine := fmt.Sprintf(`Environment="%s=%s\n"`, key, value)
