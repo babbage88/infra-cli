@@ -289,7 +289,7 @@ func knownHostTarget(host string, remote net.Addr) string {
 
 	_, port, err := net.SplitHostPort(remote.String())
 	if err != nil || port == "" {
-		return host
+		return net.JoinHostPort(host, "22")
 	}
 
 	return net.JoinHostPort(host, port)
