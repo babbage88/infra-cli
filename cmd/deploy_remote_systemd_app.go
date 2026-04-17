@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/babbage88/infra-cli/deployer"
@@ -13,84 +13,68 @@ import (
 	"github.com/spf13/viper"
 )
 
-// TODO ensure the remote_utils are being properly embeded in infractl binary, currently this command only seems to work when ran from inside the infra-cli repo and remote_utils are built/present in current directory
-// TODO remote_utils should be built to support multiple OS architectures and selected for the right bin at destination or before copying
-// TODO possibly get rid of the remote_utils seperate binary architecture and just wrap commands needed to execute over ssh.
-// TODO the --env-file should get its values parsed then translated to the systemd file formatted, current just linking to a .env file in the systemd service file definition.
-// TODO I had to manually fix the env-file path in the unit file on destination.
 const (
-	deployUtilsPath           string = "remote_utils/bin"
-	deployUtilsTar            string = "remote_utils.tar.gz"
-	remoteUtilsPath           string = "/tmp/utils"
-	validateUserUtilPath      string = "remote_utils/bin/validate-user"
-	remoteValidateUserBaseCmd string = "/tmp/utils/remote_utils/validate-user"
-	mkdirCmdBase              string = "mkdir"
-	mkdirArgs                 string = "-p"
+	defaultSystemdDir = "/etc/systemd/system"
 )
 
-func getCurrentUserName() (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	name := currentUser.Name
-	return name, nil
-}
+var deployViper *viper.Viper
 
 var deployCmd = &cobra.Command{
 	Use:          "deploy",
-	Short:        "Deploy a Go web application as a systemd service",
+	Short:        "Deploy a Go application as a remote systemd service",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("Starting Cobra deploy command", "AppName", deployFlags.AppName)
-
-		// Read .env file if specified and no env-vars provided
-		if deployFlags.EnvFile != "" && len(deployFlags.EnvVars) == 0 {
-			envs, err := readEnvFile(deployFlags.EnvFile)
-			if err != nil {
-				slog.Error("Error parsing env-file", slog.String("error", err.Error()))
-				return fmt.Errorf("failed to read env file: %w", err)
-			}
-			deployFlags.EnvVars = envs
-			slog.Info("Loaded environment variables from file", slog.String("env-file", deployFlags.EnvFile), slog.Int("count", len(envs)))
+		cfg, err := resolveDeployFlags()
+		if err != nil {
+			return err
 		}
 
-		// Debug: Log the environment variables that will be passed to the deployer
-		if len(deployFlags.EnvVars) > 0 {
-			slog.Info("Environment variables to be set in systemd service", slog.Any("env-vars", deployFlags.EnvVars))
-		} else {
-			slog.Info("No environment variables to be set in systemd service")
+		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
+		if sshKey == "" {
+			sshKey = defaultSSHKeyPath()
 		}
 
-		enVars := deployer.WithEnvars(deployFlags.EnvVars)
-		serviceAccount := make(map[int64]string)
-		serviceAccount[deployFlags.ServiceUid] = deployFlags.ServiceUser
-		svcUser := deployer.WithServiceAccount(serviceAccount)
-		appDeployer := deployer.NewRemoteSystemdDeployer(deployFlags.RemoteHostName,
-			deployFlags.RemoteSshUser,
-			deployFlags.AppName,
-			deployFlags.SourceDir,
-			enVars,
-			svcUser,
-			deployer.WithInstallDir(deployFlags.InstallDir),
-			deployer.WithSystemdDir(deployFlags.SystemdDir),
-			deployer.WithDestinationBin(deployFlags.DestinationBinary),
-			deployer.WithSourceBin(deployFlags.SourceBin),
-			deployer.WithSourceDir(deployFlags.SourceDir),
+		serviceAccount := map[int64]string{
+			cfg.ServiceUid: cfg.ServiceUser,
+		}
+
+		appDeployer := deployer.NewRemoteSystemdDeployer(
+			cfg.RemoteHostName,
+			cfg.RemoteSshUser,
+			cfg.AppName,
+			cfg.SourceDir,
+			deployer.WithEnvars(cfg.EnvVars),
+			deployer.WithServiceAccount(serviceAccount),
+			deployer.WithInstallDir(cfg.InstallDir),
+			deployer.WithSystemdDir(cfg.SystemdDir),
+			deployer.WithDestinationBin(cfg.DestinationBinary),
+			deployer.WithSourceBin(cfg.SourceBin),
+			deployer.WithSourceDir(cfg.SourceDir),
 		)
-		err := appDeployer.StartSshDeploymentAgent(
-			rootViperCfg.GetString("ssh_key"),
+
+		if err := appDeployer.StartSshDeploymentAgent(
+			sshKey,
 			rootViperCfg.GetString("ssh_passphrase"),
 			rootViperCfg.GetBool("ssh_use_agent"),
 			rootViperCfg.GetUint("ssh_port"),
-		)
-		defer appDeployer.SshClient.SshClient.Close()
-		if err != nil {
-			return fmt.Errorf("Error initializing ssh client %w", err)
+		); err != nil {
+			return fmt.Errorf("initialize ssh client: %w", err)
 		}
-		slog.Info("Starting application installer", slog.String("RemoteHost", deployFlags.RemoteHostName), slog.String("AppName", deployFlags.AppName))
-		err = appDeployer.InstallApplication()
-		return err
+		defer appDeployer.SshClient.SshClient.Close()
+
+		slog.Info(
+			"Ensuring remote systemd application is installed",
+			"host", cfg.RemoteHostName,
+			"ssh_user", cfg.RemoteSshUser,
+			"app_name", cfg.AppName,
+			"install_dir", cfg.InstallDir,
+			"systemd_dir", cfg.SystemdDir,
+			"source_bin", cfg.SourceBin,
+			"destination_bin", cfg.DestinationBinary,
+			"env_var_count", len(cfg.EnvVars),
+		)
+
+		return appDeployer.InstallApplication()
 	},
 }
 
@@ -117,31 +101,112 @@ type DeployFlags struct {
 
 var deployFlags DeployFlags
 
-// init function to define the command flags and bind them with viper
 func init() {
-	curUser, _ := getCurrentUserName()
-	rootCmd.AddCommand(deployCmd)
-	// TODO: remove flags that are redundant withe rootCmd flags
-	// TODO the --RemoteDeployment flag should not be used, seperate subcommand should be used to differentiate local and remote deployments
-	// TODO change default values to be null/empty and prompt user for required values
-	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "The name of the application")
-	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "List of environment variables to set for the systemd service")
-	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "appuser", "User to run the service")
-	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for service account to run the service")
-	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "smbplusplus", "Name of the compiled binary that will be output")
-	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "/etc/smbplusplus", "Directory to install the binary")
-	deployCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", ".envfile to read in and set in systemd service unit file")
-	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", "/etc/systemd/system", "Directory where systemd service files will be stored")
-	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Source directory to build the application")
-	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "smbplusplus", "Source Binary to install to build tazxzhe application")
-	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", ".", "Remote Hostname to deploy application to")
-	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Select Remote destination Host, done via ssh.")
-	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging.")
-	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", curUser, "Remote SSH user to connect with")
-	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude durign build")
+	deployViper = viper.New()
 
-	// Bind the flags with viper
-	viper.BindPFlags(deployCmd.Flags())
+	rootCmd.AddCommand(deployCmd)
+
+	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "Application name")
+	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "Environment variables to write to the remote env file")
+	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "", "User account that will run the service; defaults to app-name")
+	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for the service account")
+	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "", "Destination binary name on the remote host; defaults to app-name")
+	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "", "Remote install directory; defaults to /opt/<app-name>")
+	deployCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", "Optional env file to merge into the remote service env file")
+	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", defaultSystemdDir, "Directory where systemd unit files are stored")
+	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Local source directory for the application")
+	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "", "Local binary to upload; defaults to app-name, resolved relative to source-dir when present")
+	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", "", "Remote host to deploy to; defaults to global --ssh-remote-host")
+	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Deprecated: remote deployment is always used by this command")
+	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging")
+	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", "", "Remote SSH user to connect with; defaults to global --ssh-remote-user")
+	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude during build")
+
+	_ = deployViper.BindPFlags(deployCmd.Flags())
+}
+
+func resolveDeployFlags() (DeployFlags, error) {
+	cfg := deployFlags
+
+	if cfg.AppName == "" {
+		return cfg, fmt.Errorf("--app-name is required")
+	}
+	if cfg.ServiceUid <= 0 {
+		return cfg, fmt.Errorf("--service-uid must be greater than zero")
+	}
+
+	if cfg.RemoteHostName == "" {
+		cfg.RemoteHostName = rootViperCfg.GetString("ssh_remote_host")
+	}
+	if cfg.RemoteHostName == "" {
+		return cfg, fmt.Errorf("remote host is required; set --remote-host or the global --ssh-remote-host flag")
+	}
+
+	if cfg.RemoteSshUser == "" {
+		cfg.RemoteSshUser = rootViperCfg.GetString("ssh_remote_user")
+	}
+	if cfg.RemoteSshUser == "" {
+		cfg.RemoteSshUser = currentUserName()
+	}
+
+	if cfg.ServiceUser == "" {
+		cfg.ServiceUser = cfg.AppName
+	}
+	if cfg.DestinationBinary == "" {
+		cfg.DestinationBinary = cfg.AppName
+	}
+	if cfg.InstallDir == "" {
+		cfg.InstallDir = filepath.ToSlash(filepath.Join("/opt", cfg.AppName))
+	}
+	if cfg.SystemdDir == "" {
+		cfg.SystemdDir = defaultSystemdDir
+	}
+	if cfg.SourceDir == "" {
+		cfg.SourceDir = "."
+	}
+	if cfg.SourceBin == "" {
+		cfg.SourceBin = cfg.AppName
+	}
+
+	if cfg.EnvFile != "" {
+		envFilePath := expandPath(cfg.EnvFile)
+		envs, err := readEnvFile(envFilePath)
+		if err != nil {
+			return cfg, fmt.Errorf("read env file %q: %w", envFilePath, err)
+		}
+		cfg.EnvFile = envFilePath
+		cfg.EnvVars = mergeStringMaps(envs, cfg.EnvVars)
+	}
+	if cfg.EnvVars == nil {
+		cfg.EnvVars = map[string]string{}
+	}
+
+	cfg.SourceBin = resolveSourceBinPath(cfg.SourceDir, cfg.SourceBin)
+	return cfg, nil
+}
+
+func resolveSourceBinPath(sourceDir, sourceBin string) string {
+	if sourceBin == "" || filepath.IsAbs(sourceBin) {
+		return sourceBin
+	}
+
+	candidate := filepath.Join(sourceDir, sourceBin)
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate
+	}
+
+	return sourceBin
+}
+
+func mergeStringMaps(base, overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(overrides))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range overrides {
+		merged[key] = value
+	}
+	return merged
 }
 
 func formatEnvVars(envVars map[string]string) string {
@@ -165,9 +230,7 @@ func readEnvFile(filePath string) (map[string]string, error) {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
-		line = strings.TrimSpace(line)
-
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

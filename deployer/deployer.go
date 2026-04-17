@@ -8,10 +8,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/babbage88/infra-cli/internal/archiver"
+	remoteutils "github.com/babbage88/infra-cli/remote_utils"
 	"github.com/babbage88/infra-cli/ssh"
 )
 
@@ -282,19 +284,18 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	slog.Info("Using for app-name", slog.String("AppName", r.AppName))
 
 	remoteUtilsPath := generateUniqueDestinationPath("/tmp", "utils")
-	remoteTempApps := generateUniqueDestinationPath("/tmp", "apps")
 
 	slog.Info("Remote temp path for utils", slog.String("remote-utils-path", remoteUtilsPath))
 
 	// Create remote install dir
 	sudo := true
-	err = r.MakeInstallDir(sudo, []string{r.InstallDir, remoteUtilsPath, remoteTempApps})
+	err = r.MakeInstallDir(sudo, []string{r.InstallDir, r.SystemdDir, remoteUtilsPath})
 	if err != nil {
 		return fmt.Errorf("error creating remote path %w", err)
 	}
 
 	// Upload application binary
-	err = r.UploadAndMoveFile(sourceBinPath, r.InstallDir)
+	err = r.UploadAndMoveFile(sourceBinPath, filepath.Join(r.InstallDir, r.DestinationBin))
 	if err != nil {
 		return fmt.Errorf("error uploading source bin %w", err)
 	}
@@ -305,7 +306,18 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 	}
 
 	// Upload utils
-	err = r.SshClient.Upload(deployUtilsPath, remoteUtilsPath)
+	remoteGOOS, remoteGOARCH, err := r.detectRemotePlatform()
+	if err != nil {
+		return err
+	}
+
+	localDeployUtilsPath, cleanupDeployUtils, err := remoteutils.ExtractToTempDir(remoteGOOS, remoteGOARCH)
+	if err != nil {
+		return err
+	}
+	defer cleanupDeployUtils()
+
+	err = r.SshClient.Upload(localDeployUtilsPath, remoteUtilsPath)
 	if err != nil {
 		return fmt.Errorf("error uploading utils %w", err)
 	}
@@ -342,8 +354,12 @@ func (r *RemoteSystemdBinDeployer) InstallApplication() error {
 
 	// Create service user if needed
 	userUtilsPath := filepath.Join(remoteUtilsPath, remoteUserUtils)
-	r.CreateUserOnRemote(userUtilsPath)
-	r.CreateUnitFileOnRemote(remoteUtilsPath)
+	if err := r.CreateUserOnRemote(userUtilsPath); err != nil {
+		return err
+	}
+	if err := r.CreateUnitFileOnRemote(remoteUtilsPath); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -395,15 +411,16 @@ func (r *RemoteSystemdBinDeployer) CreateUnitFileOnRemote(utilsDir string) error
 		finalEnvFileRemote := fmt.Sprintf("/etc/%s.env", r.AppName)
 
 		var envFileContent strings.Builder
-		for key, value := range r.EnvVars {
+		keys := sortedEnvKeys(r.EnvVars)
+		for _, key := range keys {
+			value := r.EnvVars[key]
 			envFileContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 		}
-		// Write env file to a temp file locally
-		tmpEnvFileLocal := fmt.Sprintf("/tmp/%s", envFileName)
-		err := os.WriteFile(tmpEnvFileLocal, []byte(envFileContent.String()), 0644)
+		tmpEnvFileLocal, err := writeTempEnvFile(envFileName, envFileContent.String())
 		if err != nil {
-			return fmt.Errorf("failed to write temp env file: %w", err)
+			return err
 		}
+		defer os.Remove(tmpEnvFileLocal)
 		// Create remote tmp dir
 		err = r.SshClient.RunCommand(mkdirCmdBase, []string{mkdirRecursivePflag, tmpDir})
 		if err != nil {
@@ -429,8 +446,6 @@ func (r *RemoteSystemdBinDeployer) CreateUnitFileOnRemote(utilsDir string) error
 		if err != nil {
 			return fmt.Errorf("failed to clean up remote tmp env dir: %w", err)
 		}
-		// Clean up local temp file
-		os.Remove(tmpEnvFileLocal)
 	}
 	cmd, args := r.systemdCmd(utilsDir)
 	fmt.Printf("[DEBUG] About to run remote command: %s %v\n", cmd, args)
@@ -461,7 +476,7 @@ func (r *RemoteSystemdBinDeployer) MakeInstallDir(sudo bool, argsDirs []string) 
 				return err
 			}
 			fmt.Println(string(output))
-			return err
+			continue
 
 		} else {
 			output, err := r.SshClient.RunCommandAndCaptureOutput(mkdirCmdBase, []string{mkdirRecursivePflag, path})
@@ -470,7 +485,7 @@ func (r *RemoteSystemdBinDeployer) MakeInstallDir(sudo bool, argsDirs []string) 
 				return err
 			}
 			fmt.Println(string(output))
-			return err
+			continue
 		}
 	}
 	return nil
@@ -661,12 +676,13 @@ func (r *RemoteSystemdBinDeployer) systemdCmd(utilsDir string) (string, []string
 
 		fullUtilsPath := filepath.Join(utilsDir, remoteSystemdBaseCmd)
 		envFilePath := fmt.Sprintf("/etc/%s.env", r.AppName)
+		execPath := filepath.Join(r.InstallDir, r.DestinationBin)
 		args = []string{
 			fullUtilsPath,
 			remoteSystemdNoVu,
 			remoteSystemdEnableSvcFlag,
 			remoteSystemdAppNameFlag, r.AppName,
-			remoteSystemdInstalldirFlag, r.InstallDir, remoteSystemdExecBinFlag, r.DestinationBin,
+			remoteSystemdInstalldirFlag, r.InstallDir, remoteSystemdExecBinFlag, execPath,
 			remoteSystemdEnvVarsFlag, envFilePath,
 			remoteSystemdDir, r.SystemdDir,
 			remoteSystemdSvcUserFlag, value,
@@ -675,4 +691,75 @@ func (r *RemoteSystemdBinDeployer) systemdCmd(utilsDir string) (string, []string
 	}
 
 	return cmd, args
+}
+
+func sortedEnvKeys(envVars map[string]string) []string {
+	keys := make([]string, 0, len(envVars))
+	for key := range envVars {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func writeTempEnvFile(pattern, contents string) (string, error) {
+	tmpFile, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp env file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	if _, err := tmpFile.WriteString(contents); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write temp env file: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
+
+func (r *RemoteSystemdBinDeployer) detectRemotePlatform() (string, string, error) {
+	rawOS, err := r.SshClient.RunCommandAndCaptureOutput("uname", []string{"-s"})
+	if err != nil {
+		return "", "", fmt.Errorf("detect remote operating system: %w", err)
+	}
+
+	rawArch, err := r.SshClient.RunCommandAndCaptureOutput("uname", []string{"-m"})
+	if err != nil {
+		return "", "", fmt.Errorf("detect remote architecture: %w", err)
+	}
+
+	goos, err := normalizeRemoteGOOS(strings.TrimSpace(string(rawOS)))
+	if err != nil {
+		return "", "", err
+	}
+
+	goarch, err := normalizeRemoteGOARCH(strings.TrimSpace(string(rawArch)))
+	if err != nil {
+		return "", "", err
+	}
+
+	slog.Info("Detected remote platform", "goos", goos, "goarch", goarch, "host", r.RemoteHostName)
+	return goos, goarch, nil
+}
+
+func normalizeRemoteGOOS(raw string) (string, error) {
+	switch strings.ToLower(raw) {
+	case "linux":
+		return "linux", nil
+	case "darwin":
+		return "darwin", nil
+	default:
+		return "", fmt.Errorf("unsupported remote operating system %q", raw)
+	}
+}
+
+func normalizeRemoteGOARCH(raw string) (string, error) {
+	switch strings.ToLower(raw) {
+	case "x86_64", "amd64":
+		return "amd64", nil
+	case "aarch64", "arm64":
+		return "arm64", nil
+	default:
+		return "", fmt.Errorf("unsupported remote architecture %q", raw)
+	}
 }
