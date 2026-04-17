@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/babbage88/infra-cli/internal/pretty"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -24,6 +25,7 @@ var (
 	sshRemoteTargetHost                     string
 	sshRemoteTargetUser                     string
 	sshUseAgent                             bool
+	sshSkipHostKeyVerify                    bool
 	sshPort                                 uint
 	jwtAuthToken                            string
 	cfgFile, metaCfgFile, dnsCfgFile        string
@@ -66,6 +68,8 @@ func init() {
 		"Username for remote host connection")
 	rootCmd.PersistentFlags().BoolVar(&sshUseAgent, "ssh-use-agent", false,
 		"Use ssh-agent for ssh-key auth.")
+	rootCmd.PersistentFlags().BoolVar(&sshSkipHostKeyVerify, "ssh-skip-host-key-verify", false,
+		"Skip SSH host key verification. Temporary troubleshooting flag; insecure and not recommended for normal use.")
 	rootCmd.PersistentFlags().UintVar(&sshPort, "ssh-port", uint(22),
 		"Port SSH is listening on the remote host")
 
@@ -87,6 +91,7 @@ func initConfig() {
 	rootViperCfg.BindPFlag("ssh_key", rootCmd.PersistentFlags().Lookup("ssh-key"))
 	rootViperCfg.BindPFlag("ssh_passphrase", rootCmd.PersistentFlags().Lookup("ssh-passphrase"))
 	rootViperCfg.BindPFlag("ssh_use_agent", rootCmd.PersistentFlags().Lookup("ssh-use-agent"))
+	rootViperCfg.BindPFlag("ssh_skip_host_key_verify", rootCmd.PersistentFlags().Lookup("ssh-skip-host-key-verify"))
 	rootViperCfg.BindPFlag("ssh_port", rootCmd.PersistentFlags().Lookup("ssh-port"))
 	rootViperCfg.BindPFlag("ssh_remote_host", rootCmd.PersistentFlags().Lookup("ssh-remote-host"))
 	rootViperCfg.BindPFlag("ssh_remote_user", rootCmd.PersistentFlags().Lookup("ssh-remote-user"))
@@ -95,6 +100,7 @@ func initConfig() {
 	rootViperCfg.AutomaticEnv()
 
 	apiTokens = rootViperCfg.GetStringMapString("api_tokens")
+	infraSSH.SetIgnoreHostKeyVerification(rootViperCfg.GetBool("ssh_skip_host_key_verify"))
 
 	if jwtAuthToken == "" {
 		jwtAuthToken = rootViperCfg.GetString("auth_token")

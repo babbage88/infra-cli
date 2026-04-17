@@ -24,6 +24,12 @@ type RemoteAppDeploymentAgent struct {
 	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
+var ignoreHostKeyVerification bool
+
+func SetIgnoreHostKeyVerification(ignore bool) {
+	ignoreHostKeyVerification = ignore
+}
+
 func VerifyHost(host string, remote net.Addr, key cryptossh.PublicKey) error {
 	return verifyKnownHost(host, host, remote, key)
 }
@@ -57,7 +63,13 @@ func initializeSshClient(host string, user string, port uint, sshKeyPath string,
 }
 
 func makeHostKeyCallback(originalHost, resolvedHost string) func(string, net.Addr, cryptossh.PublicKey) error {
+	if ignoreHostKeyVerification {
+		slog.Warn("SSH host key verification disabled", "alias", originalHost, "hostname", resolvedHost)
+		return cryptossh.InsecureIgnoreHostKey()
+	}
+
 	return func(_ string, remote net.Addr, key cryptossh.PublicKey) error {
+		// TODO: Restore strict known_hosts verification after we fix the alias/IP matching regression.
 		return verifyKnownHost(originalHost, resolvedHost, remote, key)
 	}
 }
