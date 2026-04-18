@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
+	"time"
 
+	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
@@ -13,8 +16,10 @@ import (
 )
 
 var (
-	newLxcRequest  proxmox.LxcContainer
-	proxmoxLxcAuth proxmox.Auth
+	newLxcRequest        proxmox.LxcContainer
+	proxmoxLxcAuth       proxmox.Auth
+	lxcVerifySSHUserFlag string
+	lxcVerifySSHPortFlag uint
 )
 
 var proxmoxLxcCreateCmd = &cobra.Command{
@@ -76,6 +81,23 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			return fmt.Errorf("create container: %w", err)
 		}
 		fmt.Println("Container creation request sent successfully.")
+		if localViper.GetBool("verify") {
+			fmt.Println("Verifying container boot and SSH reachability...")
+			verifyUser := strings.TrimSpace(localViper.GetString("verify_ssh_user"))
+			if verifyUser == "" {
+				verifyUser = lxcVerifySSHUserFlag
+			}
+			verifyPort := localViper.GetUint("verify_ssh_port")
+			if verifyPort == 0 {
+				verifyPort = lxcVerifySSHPortFlag
+			}
+			if verifyPort == 0 {
+				verifyPort = 22
+			}
+			if err := verifyCreatedLxcContainer(&newLxcRequest, verifyUser, verifyPort); err != nil {
+				return err
+			}
+		}
 		return nil
 	},
 }
@@ -121,6 +143,9 @@ func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *
 	}
 	if strings.TrimSpace(req.Hostname) == "" {
 		req.Hostname = promptInputWithExample("Container hostname", "app-staging-01", "")
+	}
+	if len(req.SshPublicKeys) == 0 {
+		req.SshPublicKeys = promptForLxcSSHPublicKeys()
 	}
 	if len(req.SshPublicKeys) == 0 && strings.TrimSpace(req.Password) == "" {
 		req.Password = promptPasswordWithExample("Container root password", "correct-horse-battery-staple", "")
@@ -278,24 +303,7 @@ func listAvailableLxcTemplates(node string, client *proxmox.Client) ([]string, e
 }
 
 func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
-	sshHost := rootViperCfg.GetString("ssh_remote_host")
-	if strings.TrimSpace(sshHost) == "" {
-		sshHost = node
-	}
-
-	sshUser := rootViperCfg.GetString("ssh_remote_user")
-	if strings.TrimSpace(sshUser) == "" {
-		sshUser = "root"
-	}
-
-	sshClient, err := infraSSH.InitializeSshClient(
-		sshHost,
-		sshUser,
-		expandPath(rootViperCfg.GetString("ssh_key")),
-		rootViperCfg.GetString("ssh_passphrase"),
-		rootViperCfg.GetBool("ssh_use_agent"),
-		rootViperCfg.GetUint("ssh_port"),
-	)
+	sshClient, _, err := initializeRootSSHClient(node, "root")
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +333,186 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 	return templates, nil
 }
 
+func promptForLxcSSHPublicKeys() []string {
+	if !promptYesNo("Add an SSH public key for container access?", true) {
+		return nil
+	}
+
+	options := discoverLocalPublicKeyOptions()
+	if len(options) == 0 {
+		manualKey := strings.TrimSpace(promptInputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
+		if manualKey == "" {
+			return nil
+		}
+		return []string{manualKey}
+	}
+
+	selectionOptions := append([]string{}, options...)
+	selectionOptions = append(selectionOptions, "Paste a public key manually")
+	selection := promptSelectOption("Select an SSH public key to authorize", selectionOptions, options[0])
+	if selection == "Paste a public key manually" {
+		manualKey := strings.TrimSpace(promptInputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
+		if manualKey == "" {
+			return nil
+		}
+		return []string{manualKey}
+	}
+
+	return []string{selection}
+}
+
+func discoverLocalPublicKeyOptions() []string {
+	return infraSSH.DiscoverPublicKeyContents(rootViperCfg.GetString("ssh_key"))
+}
+
+func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPort uint) error {
+	sshClient, err := initializeProxmoxAdminSSH(req.Node)
+	if err != nil {
+		return fmt.Errorf("initialize proxmox SSH for verification: %w", err)
+	}
+	defer sshClient.Close()
+
+	if req.Start != "1" {
+		fmt.Printf("Starting container %d so verification can run...\n", req.VmId)
+		if _, err := runRemoteQuotedCommand(sshClient, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
+			return fmt.Errorf("start container %d for verification: %w", req.VmId, err)
+		}
+	}
+
+	if err := waitForLxcRunningOverSSH(sshClient, req.VmId, 2*time.Minute); err != nil {
+		return err
+	}
+
+	ipAddr, err := waitForLxcIPv4OverSSH(sshClient, req.VmId, 3*time.Minute)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Container %d reported IPv4 address %s.\n", req.VmId, ipAddr)
+
+	var verificationErrors []string
+	if err := verifyLxcSSHFromLocalMachine(ipAddr, sshUser, sshPort); err == nil {
+		fmt.Printf("Verified SSH reachability from this computer to %s:%d.\n", ipAddr, sshPort)
+		return nil
+	} else {
+		verificationErrors = append(verificationErrors, fmt.Sprintf("local verification failed: %v", err))
+	}
+
+	if err := verifyLxcSSHFromProxmoxNode(sshClient, ipAddr, sshPort); err == nil {
+		fmt.Printf("Verified SSH reachability from the Proxmox node to %s:%d.\n", ipAddr, sshPort)
+		return nil
+	} else {
+		verificationErrors = append(verificationErrors, fmt.Sprintf("proxmox-node verification failed: %v", err))
+	}
+
+	return fmt.Errorf("container %d booted but SSH was not reachable from either vantage point: %s", req.VmId, strings.Join(verificationErrors, "; "))
+}
+
+func waitForLxcRunningOverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		out, err := runRemoteQuotedCommand(sshClient, "pct", "status", fmt.Sprintf("%d", vmid))
+		if err == nil && strings.Contains(strings.ToLower(string(out)), "status: running") {
+			fmt.Printf("Container %d is running.\n", vmid)
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return fmt.Errorf("timed out waiting for container %d to start: %w", vmid, err)
+			}
+			return fmt.Errorf("timed out waiting for container %d to start; latest status was %q", vmid, strings.TrimSpace(string(out)))
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func waitForLxcIPv4OverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		ipAddr, err := getLxcPrimaryIPv4OverSSH(sshClient, vmid)
+		if err == nil && ipAddr != "" {
+			return ipAddr, nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return "", fmt.Errorf("timed out waiting for IPv4 on container %d: %w", vmid, err)
+			}
+			return "", fmt.Errorf("timed out waiting for IPv4 on container %d", vmid)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func getLxcPrimaryIPv4OverSSH(sshClient *goph.Client, vmid int) (string, error) {
+	script := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(`hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`)
+	out, err := sshClient.Run("sh -c " + shellQuote(script))
+	if err != nil {
+		return "", formatSSHExecError(err, out)
+	}
+
+	ipAddr := strings.TrimSpace(string(out))
+	if ipAddr == "" {
+		return "", fmt.Errorf("container has not reported an IPv4 address yet")
+	}
+	if net.ParseIP(ipAddr) == nil {
+		return "", fmt.Errorf("container reported an invalid IPv4 address %q", ipAddr)
+	}
+	return ipAddr, nil
+}
+
+func verifyLxcSSHFromLocalMachine(ipAddr, sshUser string, sshPort uint) error {
+	if strings.TrimSpace(sshUser) == "" {
+		sshUser = "root"
+	}
+	if sshPort == 0 {
+		sshPort = 22
+	}
+
+	addr := net.JoinHostPort(ipAddr, fmt.Sprintf("%d", sshPort))
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("open tcp connection to %s: %w", addr, err)
+	}
+	_ = conn.Close()
+
+	sshKey := strings.TrimSpace(rootViperCfg.GetString("ssh_key"))
+	useAgent := rootViperCfg.GetBool("ssh_use_agent")
+	if sshKey == "" && !useAgent {
+		return nil
+	}
+
+	client, err := infraSSH.InitializeSshClient(
+		ipAddr,
+		sshUser,
+		infraSSH.ExpandPath(sshKey),
+		rootViperCfg.GetString("ssh_passphrase"),
+		useAgent,
+		sshPort,
+	)
+	if err != nil {
+		return fmt.Errorf("authenticate to %s@%s over SSH: %w", sshUser, ipAddr, err)
+	}
+	defer client.Close()
+
+	out, err := client.Run("true")
+	if err != nil {
+		return formatSSHExecError(err, out)
+	}
+	return nil
+}
+
+func verifyLxcSSHFromProxmoxNode(sshClient *goph.Client, ipAddr string, sshPort uint) error {
+	if sshPort == 0 {
+		sshPort = 22
+	}
+	port := fmt.Sprintf("%d", sshPort)
+	script := `if command -v ssh-keyscan >/dev/null 2>&1; then ssh-keyscan -T 5 -p ` + shellQuote(port) + ` ` + shellQuote(ipAddr) + ` >/dev/null 2>&1; else nc -z -w 5 ` + shellQuote(ipAddr) + ` ` + shellQuote(port) + ` >/dev/null 2>&1; fi`
+	out, err := sshClient.Run("sh -c " + shellQuote(script))
+	if err != nil {
+		return formatSSHExecError(err, out)
+	}
+	return nil
+}
+
 func init() {
 	proxmoxLxcSubCmd.AddCommand(proxmoxLxcCreateCmd)
 
@@ -342,6 +530,9 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().String("ostemplate", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", "OS template")
 	proxmoxLxcCreateCmd.Flags().StringSlice("ssh-public-keys", nil, "Authorized SSH public keys")
 	proxmoxLxcCreateCmd.Flags().String("storage", "local-lvm", "Storage for container")
+	proxmoxLxcCreateCmd.Flags().Bool("verify", false, "Wait for the container to boot and verify SSH reachability after creation")
+	proxmoxLxcCreateCmd.Flags().StringVar(&lxcVerifySSHUserFlag, "verify-ssh-user", "root", "SSH user to use when validating container connectivity")
+	proxmoxLxcCreateCmd.Flags().UintVar(&lxcVerifySSHPortFlag, "verify-ssh-port", 22, "SSH port to use when validating container connectivity")
 	proxmoxLxcCreateCmd.Flags().String("rootfs-size", "9", "Root filesystem size in GB")
 	proxmoxLxcCreateCmd.Flags().Int("memory", 1024, "Memory in MB")
 	proxmoxLxcCreateCmd.Flags().Int("swap", 512, "Swap in MB")

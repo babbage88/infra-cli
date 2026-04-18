@@ -16,12 +16,11 @@ var databaseMariaDBNewCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Install and configure MariaDB for remote access on a host over SSH",
 	Run: func(cmd *cobra.Command, args []string) {
-		sshHost := rootViperCfg.GetString("ssh_remote_host")
-		sshUser := rootViperCfg.GetString("ssh_remote_user")
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-		sshPort := rootViperCfg.GetUint("ssh_port")
+		sshOpts, err := resolveRootSSHOptions("", "")
+		if err != nil {
+			slog.Error("Failed to resolve SSH options", "error", err.Error())
+			os.Exit(1)
+		}
 
 		dbName := mariaDBNewViper.GetString("db_name")
 		dbUser := mariaDBNewViper.GetString("db_user")
@@ -29,16 +28,6 @@ var databaseMariaDBNewCmd = &cobra.Command{
 		mariaDBBind := mariaDBNewViper.GetString("mariadb_bind")
 		mariaDBPort := mariaDBNewViper.GetInt("mariadb_port")
 
-		if sshHost == "" {
-			slog.Error("SSH host is required", "hint", "set the global --ssh-remote-host flag")
-			os.Exit(1)
-		}
-		if sshUser == "" {
-			sshUser = currentUserName()
-		}
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
 		if mariaDBPort <= 0 {
 			slog.Error("Invalid MariaDB port", "port", mariaDBPort)
 			os.Exit(1)
@@ -47,21 +36,21 @@ var databaseMariaDBNewCmd = &cobra.Command{
 		dbName, dbUser, dbPassword = promptForMissingAppConfig(cmd, dbName, dbUser, dbPassword)
 
 		installer, err := deployer.NewRemoteMariaDBInstallerWithSsh(
-			sshHost,
-			sshUser,
-			sshKey,
-			sshPassphrase,
-			useSshAgent,
-			sshPort,
+			sshOpts.Host,
+			sshOpts.User,
+			sshOpts.KeyPath,
+			sshOpts.Passphrase,
+			sshOpts.UseAgent,
+			sshOpts.Port,
 		)
 		if err != nil {
 			slog.Error(
 				"Failed to initialize SSH client",
-				"host", sshHost,
-				"user", sshUser,
-				"port", sshPort,
-				"ssh_key", sshKey,
-				"use_ssh_agent", useSshAgent,
+				"host", sshOpts.Host,
+				"user", sshOpts.User,
+				"port", sshOpts.Port,
+				"ssh_key", sshOpts.KeyPath,
+				"use_ssh_agent", sshOpts.UseAgent,
 				"error", err.Error(),
 			)
 			os.Exit(1)
@@ -70,7 +59,7 @@ var databaseMariaDBNewCmd = &cobra.Command{
 
 		slog.Info(
 			"Ensuring MariaDB is installed and configured",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"database", dbName,
 			"user", dbUser,
 			"bind", mariaDBBind,
@@ -84,18 +73,18 @@ var databaseMariaDBNewCmd = &cobra.Command{
 
 		slog.Info(
 			"MariaDB installation and remote access setup completed",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"database", dbName,
 			"user", dbUser,
 			"bind", mariaDBBind,
 			"port", mariaDBPort,
 		)
 
-		fmt.Printf("MariaDB host: %s\n", sshHost)
+		fmt.Printf("MariaDB host: %s\n", sshOpts.Host)
 		fmt.Printf("MariaDB port: %d\n", mariaDBPort)
 		fmt.Printf("MariaDB database: %s\n", dbName)
 		fmt.Printf("MariaDB user: %s\n", dbUser)
-		fmt.Printf("MariaDB URI: %s\n", buildMariaDBURL(sshHost, mariaDBPort, dbName, dbUser, dbPassword))
+		fmt.Printf("MariaDB URI: %s\n", buildMariaDBURL(sshOpts.Host, mariaDBPort, dbName, dbUser, dbPassword))
 	},
 }
 

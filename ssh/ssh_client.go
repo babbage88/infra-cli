@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -377,6 +378,94 @@ func resolveSSHKeyPaths(explicitPath string) []string {
 	}
 
 	return keyPaths
+}
+
+func ExpandPath(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
+
+func CurrentUserName() string {
+	if username := os.Getenv("USER"); username != "" {
+		return username
+	}
+
+	curUser, err := user.Current()
+	if err == nil && curUser.Username != "" {
+		return curUser.Username
+	}
+
+	return "root"
+}
+
+func DefaultPrivateKeyPath() string {
+	for _, candidate := range []string{"~/.ssh/id_ed25519", "~/.ssh/id_rsa"} {
+		expanded := ExpandPath(candidate)
+		if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
+			return expanded
+		}
+	}
+
+	return ""
+}
+
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func FormatExecError(err error, out []byte) error {
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return fmt.Errorf("SSH execution failed: %w", err)
+	}
+	return fmt.Errorf("SSH execution failed: %w: %s", err, output)
+}
+
+func DiscoverPublicKeyContents(explicitPrivateKeyPath string) []string {
+	candidates := make([]string, 0, 5)
+	if explicitPrivateKeyPath = strings.TrimSpace(explicitPrivateKeyPath); explicitPrivateKeyPath != "" {
+		candidates = append(candidates, ExpandPath(explicitPrivateKeyPath)+".pub")
+	}
+	for _, path := range []string{
+		"~/.ssh/id_ed25519.pub",
+		"~/.ssh/id_rsa.pub",
+		"~/.ssh/id_ecdsa.pub",
+		"~/.ssh/id_dsa.pub",
+	} {
+		candidates = append(candidates, ExpandPath(path))
+	}
+
+	keys := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		candidate = filepath.Clean(candidate)
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		key := strings.TrimSpace(string(content))
+		if key == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+
+	return keys
 }
 
 func InitializeSshClient(hostname, username, sshKey, sshPassphrase string, useAgent bool, port uint) (*goph.Client, error) {

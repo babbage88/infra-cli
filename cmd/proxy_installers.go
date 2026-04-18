@@ -51,12 +51,11 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 		Use:   defaults.Name,
 		Short: fmt.Sprintf("Install and configure %s on a remote host over SSH", defaults.Name),
 		Run: func(cmd *cobra.Command, args []string) {
-			sshHost := rootViperCfg.GetString("ssh_remote_host")
-			sshUser := rootViperCfg.GetString("ssh_remote_user")
-			sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-			sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-			useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-			sshPort := rootViperCfg.GetUint("ssh_port")
+			sshOpts, err := resolveRootSSHOptions("", "")
+			if err != nil {
+				slog.Error("Failed to resolve SSH options", "error", err.Error())
+				os.Exit(1)
+			}
 
 			packageName := proxyViper.GetString("package_name")
 			binaryName := proxyViper.GetString("binary_name")
@@ -64,33 +63,22 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 			configPath := proxyViper.GetString("config_path")
 			localConfigPath := proxyViper.GetString("local_config_path")
 
-			if sshHost == "" {
-				slog.Error("SSH host is required", "hint", "set the global --ssh-remote-host flag")
-				os.Exit(1)
-			}
-			if sshUser == "" {
-				sshUser = currentUserName()
-			}
-			if sshKey == "" {
-				sshKey = defaultSSHKeyPath()
-			}
-
 			installer, err := deployer.NewRemoteWebProxyInstallerWithSsh(
-				sshHost,
-				sshUser,
-				sshKey,
-				sshPassphrase,
-				useSshAgent,
-				sshPort,
+				sshOpts.Host,
+				sshOpts.User,
+				sshOpts.KeyPath,
+				sshOpts.Passphrase,
+				sshOpts.UseAgent,
+				sshOpts.Port,
 			)
 			if err != nil {
 				slog.Error(
 					"Failed to initialize SSH client",
-					"host", sshHost,
-					"user", sshUser,
-					"port", sshPort,
-					"ssh_key", sshKey,
-					"use_ssh_agent", useSshAgent,
+					"host", sshOpts.Host,
+					"user", sshOpts.User,
+					"port", sshOpts.Port,
+					"ssh_key", sshOpts.KeyPath,
+					"use_ssh_agent", sshOpts.UseAgent,
 					"error", err.Error(),
 				)
 				os.Exit(1)
@@ -109,7 +97,7 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 			slog.Info(
 				"Ensuring remote proxy is installed and configured",
 				"proxy", defaults.Name,
-				"host", sshHost,
+				"host", sshOpts.Host,
 				"service", serviceName,
 				"config_path", configPath,
 				"local_config_path", localConfigPath,
@@ -123,12 +111,12 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 			slog.Info(
 				"Proxy installation and configuration completed",
 				"proxy", defaults.Name,
-				"host", sshHost,
+				"host", sshOpts.Host,
 				"service", serviceName,
 				"config_path", configPath,
 			)
 
-			fmt.Printf("%s host: %s\n", defaults.Name, sshHost)
+			fmt.Printf("%s host: %s\n", defaults.Name, sshOpts.Host)
 			fmt.Printf("%s package: %s\n", defaults.Name, packageName)
 			fmt.Printf("%s binary: %s\n", defaults.Name, binaryName)
 			fmt.Printf("%s service: %s\n", defaults.Name, serviceName)

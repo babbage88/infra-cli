@@ -5,30 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/user"
-	"path/filepath"
 	"strings"
 
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/deployer"
-	"github.com/babbage88/infra-cli/ssh"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/lib/pq"
 )
-
-// expandPath expands ~ to the user's home directory
-func expandPath(path string) string {
-	if strings.HasPrefix(path, "~") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[1:])
-	}
-	return path
-}
 
 // execSQLViaSsh executes a SQL statement on a remote PostgreSQL instance via SSH with sudo
 func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
@@ -36,7 +22,7 @@ func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
 
 	out, err := sshClient.Run(cmdStr)
 	if err != nil {
-		return formatSSHExecError(err, out)
+		return infraSSH.FormatExecError(err, out)
 	}
 	return nil
 }
@@ -46,7 +32,7 @@ func execSQLViaSshBool(sshClient *goph.Client, pgUser, dbname, stmt string) (boo
 
 	out, err := sshClient.Run(cmdStr)
 	if err != nil {
-		return false, formatSSHExecError(err, out)
+		return false, infraSSH.FormatExecError(err, out)
 	}
 
 	switch strings.TrimSpace(string(out)) {
@@ -75,46 +61,10 @@ func buildRemotePsqlCommand(pgUser, dbname, stmt string, tuplesOnly bool) string
 
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
-		quoted = append(quoted, shellQuote(arg))
+		quoted = append(quoted, infraSSH.ShellQuote(arg))
 	}
 
 	return strings.Join(quoted, " ")
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func formatSSHExecError(err error, out []byte) error {
-	output := strings.TrimSpace(string(out))
-	if output == "" {
-		return fmt.Errorf("SSH execution failed: %w", err)
-	}
-	return fmt.Errorf("SSH execution failed: %w: %s", err, output)
-}
-
-func currentUserName() string {
-	if username := os.Getenv("USER"); username != "" {
-		return username
-	}
-
-	curUser, err := user.Current()
-	if err == nil && curUser.Username != "" {
-		return curUser.Username
-	}
-
-	return "root"
-}
-
-func defaultSSHKeyPath() string {
-	for _, candidate := range []string{"~/.ssh/id_ed25519", "~/.ssh/id_rsa"} {
-		expanded := expandPath(candidate)
-		if info, err := os.Stat(expanded); err == nil && !info.IsDir() {
-			return expanded
-		}
-	}
-
-	return ""
 }
 
 func dropAndRecreateDatabaseViaSSH(sshClient *goph.Client, pgUser, dbname string) error {
@@ -164,15 +114,7 @@ var newAppDBCmd = &cobra.Command{
 		pgDb := viper.GetString("postgres_conn_db")
 		pgPassword := viper.GetString("postgres_password")
 		connectSSH := viper.GetBool("connect_ssh")
-		sshHost := rootViperCfg.GetString("ssh_remote_host")
-		sshUser := rootViperCfg.GetString("ssh_remote_user")
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-		sshPort := int(rootViperCfg.GetUint("ssh_port"))
-		if sshPort == 0 {
-			sshPort = 22
-		}
+		sshHost := ""
 		gooseyPath := viper.GetString("goosey_path")
 		gooseyRunRemote := viper.GetBool("goosey_run_remote")
 		gooseyBuildRemote := viper.GetBool("goosey_build_remote")
@@ -187,30 +129,25 @@ var newAppDBCmd = &cobra.Command{
 			createDB = true
 		}
 
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
-
 		// SSH-based execution path
 		if connectSSH {
-			if sshHost == "" {
-				slog.Error("SSH host is required when using --connect-ssh", "hint", "set the global --ssh-remote-host flag")
+			sshOpts, err := resolveRootSSHOptions("", "")
+			if err != nil {
+				slog.Error("Failed to resolve SSH options", "error", err.Error())
 				os.Exit(1)
 			}
-			if sshUser == "" {
-				sshUser = currentUserName()
-			}
+			sshHost = sshOpts.Host
 
 			// Initialize SSH client
-			sshClient, err := ssh.InitializeSshClient(sshHost, sshUser, sshKey, sshPassphrase, useSshAgent, uint(sshPort))
+			sshClient, err := infraSSH.InitializeSshClient(sshOpts.Host, sshOpts.User, sshOpts.KeyPath, sshOpts.Passphrase, sshOpts.UseAgent, sshOpts.Port)
 			if err != nil {
 				slog.Error(
 					"Failed to initialize SSH client",
-					"host", sshHost,
-					"user", sshUser,
-					"port", sshPort,
-					"ssh_key", sshKey,
-					"use_ssh_agent", useSshAgent,
+					"host", sshOpts.Host,
+					"user", sshOpts.User,
+					"port", sshOpts.Port,
+					"ssh_key", sshOpts.KeyPath,
+					"use_ssh_agent", sshOpts.UseAgent,
 					"error", err.Error(),
 				)
 				os.Exit(1)
@@ -334,7 +271,7 @@ var newAppDBCmd = &cobra.Command{
 
 			if gooseyPath != "" {
 				dbURL := buildPostgresURL(sshHost, pgPort, dbname, username, password)
-				slog.Info("Running goosey migration", "path", expandPath(gooseyPath), "database", dbname, "host", sshHost, "port", pgPort, "user", username, "remote", gooseyRunRemote)
+				slog.Info("Running goosey migration", "path", infraSSH.ExpandPath(gooseyPath), "database", dbname, "host", sshHost, "port", pgPort, "user", username, "remote", gooseyRunRemote)
 				var err error
 				if gooseyRunRemote {
 					gooseyBinaryPath, cleanup, buildErr := maybeBuildRemoteGooseyBinary(gooseyPath, gooseyBuildRemote, gooseyRemoteGOOS, gooseyRemoteGOARCH)
@@ -507,7 +444,7 @@ var newAppDBCmd = &cobra.Command{
 
 		if gooseyPath != "" {
 			dbURL := buildPostgresURL(pgHostname, pgPort, dbname, username, password)
-			slog.Info("Running goosey migration", "path", expandPath(gooseyPath), "database", dbname, "host", pgHostname, "port", pgPort, "user", username)
+			slog.Info("Running goosey migration", "path", infraSSH.ExpandPath(gooseyPath), "database", dbname, "host", pgHostname, "port", pgPort, "user", username)
 			if err := runGooseyBinary(gooseyPath, dbURL); err != nil {
 				slog.Error("Failed running goosey migration", "error", err.Error())
 				os.Exit(1)

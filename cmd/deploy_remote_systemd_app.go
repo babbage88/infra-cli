@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/babbage88/infra-cli/deployer"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -32,8 +33,12 @@ var deployAppSystemdCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
+		sshOpts, err := resolveRootSSHOptions(cfg.RemoteHostName, cfg.RemoteSshUser)
+		if err != nil {
+			return err
+		}
+		cfg.RemoteHostName = sshOpts.Host
+		cfg.RemoteSshUser = sshOpts.User
 
 		serviceAccount := map[int64]string{
 			cfg.ServiceUid: cfg.ServiceUser,
@@ -54,10 +59,10 @@ var deployAppSystemdCmd = &cobra.Command{
 		)
 
 		if err := appDeployer.StartSshDeploymentAgent(
-			sshKey,
-			rootViperCfg.GetString("ssh_passphrase"),
-			rootViperCfg.GetBool("ssh_use_agent"),
-			rootViperCfg.GetUint("ssh_port"),
+			sshOpts.KeyPath,
+			sshOpts.Passphrase,
+			sshOpts.UseAgent,
+			sshOpts.Port,
 		); err != nil {
 			return fmt.Errorf("initialize ssh client: %w", err)
 		}
@@ -165,7 +170,7 @@ func resolveDeployFlags() (DeployFlags, error) {
 		cfg.RemoteSshUser = rootViperCfg.GetString("ssh_remote_user")
 	}
 	if cfg.RemoteSshUser == "" {
-		cfg.RemoteSshUser = currentUserName()
+		cfg.RemoteSshUser = infraSSH.CurrentUserName()
 	}
 
 	if cfg.ServiceUser == "" {
@@ -188,7 +193,7 @@ func resolveDeployFlags() (DeployFlags, error) {
 	}
 
 	if cfg.EnvFile != "" {
-		envFilePath := expandPath(cfg.EnvFile)
+		envFilePath := infraSSH.ExpandPath(cfg.EnvFile)
 		envs, err := readEnvFile(envFilePath)
 		if err != nil {
 			return cfg, fmt.Errorf("read env file %q: %w", envFilePath, err)
@@ -221,7 +226,7 @@ func resolveDeployFlags() (DeployFlags, error) {
 		cfg.SourceBin = resolveSourceBinPath(cfg.SourceDir, cfg.SourceBin)
 	}
 	if cfg.SourceGoModule != "" {
-		cfg.SourceGoModule = expandPath(cfg.SourceGoModule)
+		cfg.SourceGoModule = infraSSH.ExpandPath(cfg.SourceGoModule)
 	}
 	if cfg.SourceRepo != "" && cfg.SourceRef == "" {
 		cfg.SourceRef = promptOptionalInput("Git ref to build [press enter for default branch]", "")
@@ -255,7 +260,7 @@ func prepareDeploymentSourceBinary(appDeployer *deployer.RemoteSystemdBinDeploye
 }
 
 func buildGoBinaryFromModule(moduleDir, sourcePackage, appName, goos, goarch string) (string, func(), error) {
-	moduleDir = expandPath(moduleDir)
+	moduleDir = infraSSH.ExpandPath(moduleDir)
 	info, err := os.Stat(moduleDir)
 	if err != nil {
 		return "", nil, fmt.Errorf("stat source go module %q: %w", moduleDir, err)

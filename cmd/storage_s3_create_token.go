@@ -16,12 +16,11 @@ var storageS3CreateTokenCmd = &cobra.Command{
 	Use:   "create-token",
 	Short: "Create an S3 access key and secret on a remote Garage instance over SSH",
 	Run: func(cmd *cobra.Command, args []string) {
-		sshHost := rootViperCfg.GetString("ssh_remote_host")
-		sshUser := rootViperCfg.GetString("ssh_remote_user")
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-		sshPort := rootViperCfg.GetUint("ssh_port")
+		sshOpts, err := resolveRootSSHOptions("", "")
+		if err != nil {
+			slog.Error("Failed to resolve SSH options", "error", err.Error())
+			os.Exit(1)
+		}
 
 		bucketName := garageTokenViper.GetString("garage_bucket_name")
 		keyName := garageTokenViper.GetString("garage_key_name")
@@ -36,16 +35,6 @@ var storageS3CreateTokenCmd = &cobra.Command{
 		garageLayoutZone := garageTokenViper.GetString("garage_layout_zone")
 		garageLayoutCapacity := garageTokenViper.GetString("garage_layout_capacity")
 
-		if sshHost == "" {
-			slog.Error("SSH host is required", "hint", "set the global --ssh-remote-host flag")
-			os.Exit(1)
-		}
-		if sshUser == "" {
-			sshUser = currentUserName()
-		}
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
 		if !cmd.Flags().Changed("bucket") && !allowCreateBuckets {
 			bucketName = promptInput("Garage bucket name", bucketName)
 		}
@@ -71,25 +60,25 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		if garageS3Endpoint == "" {
-			garageS3Endpoint = fmt.Sprintf("http://%s:3900", sshHost)
+			garageS3Endpoint = fmt.Sprintf("http://%s:3900", sshOpts.Host)
 		}
 
 		installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-			sshHost,
-			sshUser,
-			sshKey,
-			sshPassphrase,
-			useSshAgent,
-			sshPort,
+			sshOpts.Host,
+			sshOpts.User,
+			sshOpts.KeyPath,
+			sshOpts.Passphrase,
+			sshOpts.UseAgent,
+			sshOpts.Port,
 		)
 		if err != nil {
 			slog.Error(
 				"Failed to initialize SSH client",
-				"host", sshHost,
-				"user", sshUser,
-				"port", sshPort,
-				"ssh_key", sshKey,
-				"use_ssh_agent", useSshAgent,
+				"host", sshOpts.Host,
+				"user", sshOpts.User,
+				"port", sshOpts.Port,
+				"ssh_key", sshOpts.KeyPath,
+				"use_ssh_agent", sshOpts.UseAgent,
 				"error", err.Error(),
 			)
 			os.Exit(1)
@@ -112,7 +101,7 @@ var storageS3CreateTokenCmd = &cobra.Command{
 
 		slog.Info(
 			"Creating Garage S3 credentials",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"bucket", bucketName,
 			"key_name", keyName,
 			"create_bucket", createBucket,

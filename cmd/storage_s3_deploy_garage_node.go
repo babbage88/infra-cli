@@ -21,12 +21,11 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 	Use:   "deploy-garage-node",
 	Short: "Install and configure a Garage S3 storage node on a remote host over SSH",
 	Run: func(cmd *cobra.Command, args []string) {
-		sshHost := rootViperCfg.GetString("ssh_remote_host")
-		sshUser := rootViperCfg.GetString("ssh_remote_user")
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-		sshPort := rootViperCfg.GetUint("ssh_port")
+		sshOpts, err := resolveRootSSHOptions("", "")
+		if err != nil {
+			slog.Error("Failed to resolve SSH options", "error", err.Error())
+			os.Exit(1)
+		}
 
 		garageVersion := garageDeployViper.GetString("garage_version")
 		garageBinaryPath := garageDeployViper.GetString("garage_binary_path")
@@ -50,18 +49,8 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 		garageMetricsToken := garageDeployViper.GetString("garage_metrics_token")
 		garageLogLevel := garageDeployViper.GetString("garage_log_level")
 
-		if sshHost == "" {
-			slog.Error("SSH host is required", "hint", "set the global --ssh-remote-host flag")
-			os.Exit(1)
-		}
-		if sshUser == "" {
-			sshUser = currentUserName()
-		}
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
 		if garageRPCPublicAddr == "" {
-			garageRPCPublicAddr = fmt.Sprintf("%s:3901", sshHost)
+			garageRPCPublicAddr = fmt.Sprintf("%s:3901", sshOpts.Host)
 		}
 		if garageReplicationFactor <= 0 {
 			slog.Error("Invalid Garage replication factor", "replication_factor", garageReplicationFactor)
@@ -79,21 +68,21 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 		}
 
 		installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-			sshHost,
-			sshUser,
-			sshKey,
-			sshPassphrase,
-			useSshAgent,
-			sshPort,
+			sshOpts.Host,
+			sshOpts.User,
+			sshOpts.KeyPath,
+			sshOpts.Passphrase,
+			sshOpts.UseAgent,
+			sshOpts.Port,
 		)
 		if err != nil {
 			slog.Error(
 				"Failed to initialize SSH client",
-				"host", sshHost,
-				"user", sshUser,
-				"port", sshPort,
-				"ssh_key", sshKey,
-				"use_ssh_agent", useSshAgent,
+				"host", sshOpts.Host,
+				"user", sshOpts.User,
+				"port", sshOpts.Port,
+				"ssh_key", sshOpts.KeyPath,
+				"use_ssh_agent", sshOpts.UseAgent,
 				"error", err.Error(),
 			)
 			os.Exit(1)
@@ -126,7 +115,7 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 
 		slog.Info(
 			"Ensuring Garage is installed and configured",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"rpc_public_addr", garageRPCPublicAddr,
 			"s3_api_bind_addr", garageS3BindAddr,
 			"admin_api_bind_addr", garageAdminBindAddr,
@@ -139,7 +128,7 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 
 		slog.Info(
 			"Garage installation and node deployment completed",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"config_path", garageConfigPath,
 			"rpc_public_addr", garageRPCPublicAddr,
 		)
@@ -148,8 +137,8 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 		fmt.Printf("Garage config: %s\n", garageConfigPath)
 		fmt.Printf("Garage service: garage\n")
 		fmt.Printf("Garage RPC public address: %s\n", garageRPCPublicAddr)
-		fmt.Printf("Garage S3 endpoint: http://%s\n", garageS3BindAddrToAdvertised(sshHost, garageS3BindAddr))
-		fmt.Printf("Garage admin endpoint: http://%s\n", garageBindAddrToAdvertised(sshHost, garageAdminBindAddr))
+		fmt.Printf("Garage S3 endpoint: http://%s\n", garageS3BindAddrToAdvertised(sshOpts.Host, garageS3BindAddr))
+		fmt.Printf("Garage admin endpoint: http://%s\n", garageBindAddrToAdvertised(sshOpts.Host, garageAdminBindAddr))
 		fmt.Printf("Garage admin token: %s\n", garageAdminToken)
 		fmt.Printf("Garage metrics token: %s\n", garageMetricsToken)
 	},

@@ -9,7 +9,6 @@ import (
 
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
-	infraSSH "github.com/babbage88/infra-cli/ssh"
 )
 
 const (
@@ -72,27 +71,8 @@ var (
 )
 
 func initializeProxmoxAdminSSH(pveNode string) (*goph.Client, error) {
-	sshHost := strings.TrimSpace(rootViperCfg.GetString("ssh_remote_host"))
-	if sshHost == "" {
-		sshHost = strings.TrimSpace(pveNode)
-	}
-	if sshHost == "" {
-		return nil, fmt.Errorf("no SSH target available; set --ssh-remote-host or provide --pve-node")
-	}
-
-	sshUser := strings.TrimSpace(rootViperCfg.GetString("ssh_remote_user"))
-	if sshUser == "" {
-		sshUser = "root"
-	}
-
-	return infraSSH.InitializeSshClient(
-		sshHost,
-		sshUser,
-		expandPath(rootViperCfg.GetString("ssh_key")),
-		rootViperCfg.GetString("ssh_passphrase"),
-		rootViperCfg.GetBool("ssh_use_agent"),
-		rootViperCfg.GetUint("ssh_port"),
-	)
+	sshClient, _, err := initializeRootSSHClient(strings.TrimSpace(pveNode), "root")
+	return sshClient, err
 }
 
 func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions) (bool, error) {
@@ -418,11 +398,11 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 					fullTokenID = full
 				}
 				return proxmoxCreatedToken{
-				FullTokenID: fullTokenID,
-				Secret:      value,
-			}, nil
+					FullTokenID: fullTokenID,
+					Secret:      value,
+				}, nil
+			}
 		}
-	}
 
 		if strings.HasPrefix(strings.ToLower(line), "value") {
 			parts := strings.SplitN(line, ":", 2)

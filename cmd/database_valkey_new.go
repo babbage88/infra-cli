@@ -16,12 +16,11 @@ var databaseValkeyNewCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Install and configure Valkey for remote access on a host over SSH",
 	Run: func(cmd *cobra.Command, args []string) {
-		sshHost := rootViperCfg.GetString("ssh_remote_host")
-		sshUser := rootViperCfg.GetString("ssh_remote_user")
-		sshKey := expandPath(rootViperCfg.GetString("ssh_key"))
-		sshPassphrase := rootViperCfg.GetString("ssh_passphrase")
-		useSshAgent := rootViperCfg.GetBool("ssh_use_agent")
-		sshPort := rootViperCfg.GetUint("ssh_port")
+		sshOpts, err := resolveRootSSHOptions("", "")
+		if err != nil {
+			slog.Error("Failed to resolve SSH options", "error", err.Error())
+			os.Exit(1)
+		}
 
 		valkeyUsername := valkeyNewViper.GetString("valkey_username")
 		valkeyPassword := valkeyNewViper.GetString("valkey_password")
@@ -29,16 +28,6 @@ var databaseValkeyNewCmd = &cobra.Command{
 		valkeyPort := valkeyNewViper.GetInt("valkey_port")
 		valkeyACLFile := valkeyNewViper.GetString("valkey_acl_file")
 
-		if sshHost == "" {
-			slog.Error("SSH host is required", "hint", "set the global --ssh-remote-host flag")
-			os.Exit(1)
-		}
-		if sshUser == "" {
-			sshUser = currentUserName()
-		}
-		if sshKey == "" {
-			sshKey = defaultSSHKeyPath()
-		}
 		if valkeyPort <= 0 {
 			slog.Error("Invalid Valkey port", "port", valkeyPort)
 			os.Exit(1)
@@ -52,21 +41,21 @@ var databaseValkeyNewCmd = &cobra.Command{
 		}
 
 		installer, err := deployer.NewRemoteValkeyInstallerWithSsh(
-			sshHost,
-			sshUser,
-			sshKey,
-			sshPassphrase,
-			useSshAgent,
-			sshPort,
+			sshOpts.Host,
+			sshOpts.User,
+			sshOpts.KeyPath,
+			sshOpts.Passphrase,
+			sshOpts.UseAgent,
+			sshOpts.Port,
 		)
 		if err != nil {
 			slog.Error(
 				"Failed to initialize SSH client",
-				"host", sshHost,
-				"user", sshUser,
-				"port", sshPort,
-				"ssh_key", sshKey,
-				"use_ssh_agent", useSshAgent,
+				"host", sshOpts.Host,
+				"user", sshOpts.User,
+				"port", sshOpts.Port,
+				"ssh_key", sshOpts.KeyPath,
+				"use_ssh_agent", sshOpts.UseAgent,
 				"error", err.Error(),
 			)
 			os.Exit(1)
@@ -75,7 +64,7 @@ var databaseValkeyNewCmd = &cobra.Command{
 
 		slog.Info(
 			"Ensuring Valkey is installed and configured",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"user", valkeyUsername,
 			"bind", valkeyBind,
 			"port", valkeyPort,
@@ -88,16 +77,16 @@ var databaseValkeyNewCmd = &cobra.Command{
 
 		slog.Info(
 			"Valkey installation and remote access setup completed",
-			"host", sshHost,
+			"host", sshOpts.Host,
 			"user", valkeyUsername,
 			"bind", valkeyBind,
 			"port", valkeyPort,
 		)
 
-		fmt.Printf("Valkey host: %s\n", sshHost)
+		fmt.Printf("Valkey host: %s\n", sshOpts.Host)
 		fmt.Printf("Valkey port: %d\n", valkeyPort)
 		fmt.Printf("Valkey user: %s\n", valkeyUsername)
-		fmt.Printf("Valkey URI: %s\n", buildValkeyURL(sshHost, valkeyPort, valkeyUsername, valkeyPassword))
+		fmt.Printf("Valkey URI: %s\n", buildValkeyURL(sshOpts.Host, valkeyPort, valkeyUsername, valkeyPassword))
 	},
 }
 
