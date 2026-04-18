@@ -540,7 +540,8 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmo
 }
 
 func splitPrivilegeString(value string) []string {
-	fields := strings.Fields(strings.TrimSpace(value))
+	value = strings.ReplaceAll(strings.TrimSpace(value), ",", " ")
+	fields := strings.Fields(value)
 	return dedupeAndSortStrings(fields)
 }
 

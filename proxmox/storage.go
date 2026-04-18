@@ -94,20 +94,26 @@ func (c *Client) ListNodeStorage(ctx context.Context, node string) ([]NodeStorag
 }
 
 func (c *Client) ListStorageContent(ctx context.Context, node, storage string, contentType ProxmoxStorageContentType) ([]StorageContentItem, error) {
-	path := fmt.Sprintf(
-		"%s/%s/storage/%s/content?content=%s",
-		apiNodesPath,
-		url.PathEscape(node),
-		url.PathEscape(storage),
-		url.QueryEscape(string(contentType)),
-	)
+	path := fmt.Sprintf("%s/%s/storage/%s/content", apiNodesPath, url.PathEscape(node), url.PathEscape(storage))
 
 	var items []StorageContentItem
 	if err := c.do(ctx, "GET", path, nil, nil, false, &items); err != nil {
 		return nil, err
 	}
 
-	return items, nil
+	if contentType == "" {
+		return items, nil
+	}
+
+	filtered := make([]StorageContentItem, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Content) != string(contentType) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	return filtered, nil
 }
 
 func (c *Client) ListLxcTemplates(ctx context.Context, node string) ([]string, error) {
