@@ -7,27 +7,27 @@ set -euo pipefail
 #
 # If you prefer `go run`, change this to:
 #   INFRACTL_BIN=(go run .)
-INFRACTL_BIN=(./infra-cli)
+INFRACTL_BIN=(dist/infractl)
 
 # Set to false to print commands without executing them.
 EXECUTE=true
 
 # Toggle individual checks.
-RUN_DEPLOY_APP_SYSTEMD=true
+RUN_DEPLOY_APP_SYSTEMD=false
 RUN_STORAGE_S3_DEPLOY_GARAGE_NODE=true
 RUN_DATABASE_VALKEY_NEW=true
 RUN_DATABASE_NEWAPPDB=true
-RUN_PROXMOX_LXC_CREATE=true
+RUN_PROXMOX_LXC_CREATE=false
 
 # Shared SSH defaults. Override per command below when needed.
 COMMON_SSH_USER="root"
-COMMON_SSH_KEY="${HOME}/.ssh/id_ed25519"
+COMMON_SSH_KEY="${HOME}/.ssh/trahan_ed25519"
 COMMON_SSH_PASSPHRASE=""
 COMMON_SSH_PORT="22"
-COMMON_SSH_USE_AGENT="false"
+COMMON_SSH_USE_AGENT="true"
 
 # deploy app-systemd
-DEPLOY_SSH_HOST="test-app-host.example.internal"
+DEPLOY_SSH_HOST="rockydev1"
 DEPLOY_SSH_USER="${COMMON_SSH_USER}"
 DEPLOY_SSH_KEY="${COMMON_SSH_KEY}"
 DEPLOY_SSH_PASSPHRASE="${COMMON_SSH_PASSPHRASE}"
@@ -40,8 +40,8 @@ DEPLOY_INSTALL_DIR="/opt/verify-systemd-app"
 DEPLOY_ENV_VARS="APP_ENV=staging,VERIFY_RUN=1"
 
 # storage s3 deploy-garage-node
-GARAGE_SSH_HOST="test-garage-host.example.internal"
-GARAGE_SSH_USER="${COMMON_SSH_USER}"
+GARAGE_SSH_HOST="rockydev1"
+GARAGE_SSH_USER=$USER
 GARAGE_SSH_KEY="${COMMON_SSH_KEY}"
 GARAGE_SSH_PASSPHRASE="${COMMON_SSH_PASSPHRASE}"
 GARAGE_SSH_PORT="${COMMON_SSH_PORT}"
@@ -50,7 +50,7 @@ GARAGE_RPC_PUBLIC_ADDR=""
 GARAGE_REPLICATION_FACTOR="1"
 
 # database valkey new
-VALKEY_SSH_HOST="test-valkey-host.example.internal"
+VALKEY_SSH_HOST="10.2.10.248"
 VALKEY_SSH_USER="${COMMON_SSH_USER}"
 VALKEY_SSH_KEY="${COMMON_SSH_KEY}"
 VALKEY_SSH_PASSPHRASE="${COMMON_SSH_PASSPHRASE}"
@@ -62,7 +62,7 @@ VALKEY_BIND="0.0.0.0"
 VALKEY_PORT="6379"
 
 # database new-appdb
-APPDB_SSH_HOST="test-postgres-host.example.internal"
+APPDB_SSH_HOST="10.2.10.248"
 APPDB_SSH_USER="${COMMON_SSH_USER}"
 APPDB_SSH_KEY="${COMMON_SSH_KEY}"
 APPDB_SSH_PASSPHRASE="${COMMON_SSH_PASSPHRASE}"
@@ -77,7 +77,7 @@ APPDB_POSTGRES_PORT="5432"
 APPDB_SETUP_REMOTE_POSTGRES="false"
 
 # proxmox lxc create
-PVE_SSH_HOST="pve01.example.internal"
+PVE_SSH_HOST="proxmox3"
 PVE_SSH_USER="root"
 PVE_SSH_KEY="${COMMON_SSH_KEY}"
 PVE_SSH_PASSPHRASE="${COMMON_SSH_PASSPHRASE}"
@@ -88,7 +88,7 @@ PROXMOX_API_TOKEN="root@pam!infractl-cli=replace-me"
 PROXMOX_PVE_NODE="pve01"
 PROXMOX_LXC_VMID="9191"
 PROXMOX_LXC_HOSTNAME="verify-lxc-01"
-PROXMOX_LXC_OSTEMPLATE="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+PROXMOX_LXC_OSTEMPLATE="local:vztmpl/rockylinux-10-default_20251001_amd64.tar.xz"
 PROXMOX_LXC_STORAGE="local-lvm"
 PROXMOX_LXC_ROOTFS_SIZE="9"
 PROXMOX_LXC_NET0="name=eth0,bridge=vmbr0,ip=dhcp,type=veth"
@@ -106,20 +106,29 @@ require_var() {
 }
 
 append_root_ssh_flags() {
-  local -n out="$1"
-  local host="$2"
-  local user="$3"
-  local key="$4"
-  local passphrase="$5"
-  local port="$6"
-  local use_agent="$7"
+  local host="$1"
+  local user="$2"
+  local key="$3"
+  local passphrase="$4"
+  local port="$5"
+  local use_agent="$6"
 
-  [[ -n "${host}" ]] && out+=(--ssh-remote-host "${host}")
-  [[ -n "${user}" ]] && out+=(--ssh-remote-user "${user}")
-  [[ -n "${key}" ]] && out+=(--ssh-key "${key}")
-  [[ -n "${passphrase}" ]] && out+=(--ssh-passphrase "${passphrase}")
-  [[ -n "${port}" ]] && out+=(--ssh-port "${port}")
-  [[ "${use_agent}" == "true" ]] && out+=(--ssh-use-agent)
+  ROOT_SSH_FLAGS=()
+  [[ -n "${host}" ]] && ROOT_SSH_FLAGS+=(--ssh-remote-host "${host}")
+  [[ -n "${user}" ]] && ROOT_SSH_FLAGS+=(--ssh-remote-user "${user}")
+  if [[ -n "${key}" ]]; then
+    if [[ -f "${key}" ]]; then
+      ROOT_SSH_FLAGS+=(--ssh-key "${key}")
+    elif [[ "${use_agent}" == "true" ]]; then
+      echo "warning: skipping missing --ssh-key ${key} because ssh-agent mode is enabled" >&2
+    else
+      echo "error: configured ssh key does not exist: ${key}" >&2
+      exit 1
+    fi
+  fi
+  [[ -n "${passphrase}" ]] && ROOT_SSH_FLAGS+=(--ssh-passphrase "${passphrase}")
+  [[ -n "${port}" ]] && ROOT_SSH_FLAGS+=(--ssh-port "${port}")
+  [[ "${use_agent}" == "true" ]] && ROOT_SSH_FLAGS+=(--ssh-use-agent)
 }
 
 run_cmd() {
@@ -144,7 +153,8 @@ run_deploy_app_systemd() {
     --install-dir "${DEPLOY_INSTALL_DIR}"
   )
   [[ -n "${DEPLOY_ENV_VARS}" ]] && cmd+=(--env-vars "${DEPLOY_ENV_VARS}")
-  append_root_ssh_flags cmd "${DEPLOY_SSH_HOST}" "${DEPLOY_SSH_USER}" "${DEPLOY_SSH_KEY}" "${DEPLOY_SSH_PASSPHRASE}" "${DEPLOY_SSH_PORT}" "${DEPLOY_SSH_USE_AGENT}"
+  append_root_ssh_flags "${DEPLOY_SSH_HOST}" "${DEPLOY_SSH_USER}" "${DEPLOY_SSH_KEY}" "${DEPLOY_SSH_PASSPHRASE}" "${DEPLOY_SSH_PORT}" "${DEPLOY_SSH_USE_AGENT}"
+  cmd+=("${ROOT_SSH_FLAGS[@]}")
   run_cmd "${cmd[@]}"
 }
 
@@ -155,7 +165,8 @@ run_storage_s3_deploy_garage_node() {
     --garage-replication-factor "${GARAGE_REPLICATION_FACTOR}"
   )
   [[ -n "${GARAGE_RPC_PUBLIC_ADDR}" ]] && cmd+=(--garage-rpc-public-addr "${GARAGE_RPC_PUBLIC_ADDR}")
-  append_root_ssh_flags cmd "${GARAGE_SSH_HOST}" "${GARAGE_SSH_USER}" "${GARAGE_SSH_KEY}" "${GARAGE_SSH_PASSPHRASE}" "${GARAGE_SSH_PORT}" "${GARAGE_SSH_USE_AGENT}"
+  append_root_ssh_flags "${GARAGE_SSH_HOST}" "${GARAGE_SSH_USER}" "${GARAGE_SSH_KEY}" "${GARAGE_SSH_PASSPHRASE}" "${GARAGE_SSH_PORT}" "${GARAGE_SSH_USE_AGENT}"
+  cmd+=("${ROOT_SSH_FLAGS[@]}")
   run_cmd "${cmd[@]}"
 }
 
@@ -170,7 +181,8 @@ run_database_valkey_new() {
     --bind "${VALKEY_BIND}"
     --port "${VALKEY_PORT}"
   )
-  append_root_ssh_flags cmd "${VALKEY_SSH_HOST}" "${VALKEY_SSH_USER}" "${VALKEY_SSH_KEY}" "${VALKEY_SSH_PASSPHRASE}" "${VALKEY_SSH_PORT}" "${VALKEY_SSH_USE_AGENT}"
+  append_root_ssh_flags "${VALKEY_SSH_HOST}" "${VALKEY_SSH_USER}" "${VALKEY_SSH_KEY}" "${VALKEY_SSH_PASSPHRASE}" "${VALKEY_SSH_PORT}" "${VALKEY_SSH_USE_AGENT}"
+  cmd+=("${ROOT_SSH_FLAGS[@]}")
   run_cmd "${cmd[@]}"
 }
 
@@ -193,7 +205,8 @@ run_database_newappdb() {
   if [[ "${APPDB_SETUP_REMOTE_POSTGRES}" == "true" ]]; then
     cmd+=(--setup-remote-postgres)
   fi
-  append_root_ssh_flags cmd "${APPDB_SSH_HOST}" "${APPDB_SSH_USER}" "${APPDB_SSH_KEY}" "${APPDB_SSH_PASSPHRASE}" "${APPDB_SSH_PORT}" "${APPDB_SSH_USE_AGENT}"
+  append_root_ssh_flags "${APPDB_SSH_HOST}" "${APPDB_SSH_USER}" "${APPDB_SSH_KEY}" "${APPDB_SSH_PASSPHRASE}" "${APPDB_SSH_PORT}" "${APPDB_SSH_USE_AGENT}"
+  cmd+=("${ROOT_SSH_FLAGS[@]}")
   run_cmd "${cmd[@]}"
 }
 
@@ -226,7 +239,8 @@ run_proxmox_lxc_create() {
     --verify-ssh-user "${PROXMOX_LXC_VERIFY_SSH_USER}"
     --verify-ssh-port "${PROXMOX_LXC_VERIFY_SSH_PORT}"
   )
-  append_root_ssh_flags cmd "${PVE_SSH_HOST}" "${PVE_SSH_USER}" "${PVE_SSH_KEY}" "${PVE_SSH_PASSPHRASE}" "${PVE_SSH_PORT}" "${PVE_SSH_USE_AGENT}"
+  append_root_ssh_flags "${PVE_SSH_HOST}" "${PVE_SSH_USER}" "${PVE_SSH_KEY}" "${PVE_SSH_PASSPHRASE}" "${PVE_SSH_PORT}" "${PVE_SSH_USE_AGENT}"
+  cmd+=("${ROOT_SSH_FLAGS[@]}")
   run_cmd "${cmd[@]}"
 }
 

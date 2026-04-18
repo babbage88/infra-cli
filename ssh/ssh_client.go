@@ -209,16 +209,19 @@ func checkKnownHost(host string, remote net.Addr, key cryptossh.PublicKey, known
 		return false, fmt.Errorf("load known_hosts files: %w", err)
 	}
 
-	hostWithPort := knownHostTarget(host, remote)
-	err = callback(hostWithPort, remote, key)
-	if err == nil {
-		return true, nil
-	}
-	if skknownhosts.IsHostUnknown(err) {
-		return false, nil
+	for _, target := range knownHostTargets(host, remote) {
+		err = callback(target, remote, key)
+		if err == nil {
+			return true, nil
+		}
+		if skknownhosts.IsHostUnknown(err) {
+			continue
+		}
+
+		return false, err
 	}
 
-	return false, err
+	return false, nil
 }
 
 func appendKnownHosts(hosts []string, remote net.Addr, key cryptossh.PublicKey, knownHostsFiles []string) error {
@@ -255,11 +258,13 @@ func resolveKnownHostsFiles(originalHost, resolvedHost string) []string {
 	var files []string
 	if configHost != "" {
 		for _, value := range sshconfig.GetAll(configHost, "UserKnownHostsFile") {
-			expanded := expandSSHConfigPath(value)
-			if expanded == "" || strings.EqualFold(expanded, "none") {
-				continue
+			for _, part := range splitSSHConfigValues(value) {
+				expanded := expandSSHConfigPath(part)
+				if expanded == "" || strings.EqualFold(expanded, "none") {
+					continue
+				}
+				files = append(files, expanded)
 			}
-			files = append(files, expanded)
 		}
 	}
 	if len(files) > 0 {
@@ -272,6 +277,10 @@ func resolveKnownHostsFiles(originalHost, resolvedHost string) []string {
 	}
 
 	return []string{filepath.Join(homeDir, ".ssh", "known_hosts")}
+}
+
+func splitSSHConfigValues(value string) []string {
+	return strings.Fields(value)
 }
 
 func existingKnownHostsFiles(files []string) []string {
@@ -294,18 +303,18 @@ func primaryKnownHostsFile(files []string) string {
 	return ""
 }
 
-func knownHostTarget(host string, remote net.Addr) string {
+func knownHostTargets(host string, remote net.Addr) []string {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return host
+		return nil
 	}
 
 	_, port, err := net.SplitHostPort(remote.String())
 	if err != nil || port == "" {
-		return net.JoinHostPort(host, "22")
+		return []string{net.JoinHostPort(host, "22")}
 	}
 
-	return net.JoinHostPort(host, port)
+	return []string{net.JoinHostPort(host, port)}
 }
 
 func uniqueNonEmptyHosts(values ...string) []string {
