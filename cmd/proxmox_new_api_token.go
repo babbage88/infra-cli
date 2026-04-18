@@ -74,10 +74,10 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 		cfg.ACLPath = "/"
 		cfg.Role = infraCtlYoloRoleName
 		if strings.TrimSpace(cfg.TokenID) == "" {
-			cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-yolo", "infractl-yolo")
+			cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-yolo-unsafe", "infractl-yolo-unsafe")
 		}
 		if strings.TrimSpace(cfg.Comment) == "" {
-			cfg.Comment = promptOptionalInput("Token comment", "Created by infractl --yolo")
+			cfg.Comment = promptOptionalInput("Token comment", "infractlYOLOunsafe")
 		}
 		return nil
 	}

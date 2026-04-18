@@ -310,6 +310,18 @@ func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (
 
 	var payload []map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
+		raw := strings.TrimSpace(string(out))
+		if strings.HasPrefix(strings.ToUpper(raw), "USAGE:") || strings.HasPrefix(strings.ToUpper(raw), "ERROR:") {
+			out, err = runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", userID+"!"+tokenID)
+			if err == nil {
+				return true, nil
+			}
+			rawErr := err.Error()
+			if strings.Contains(rawErr, "not exist") || strings.Contains(rawErr, "does not exist") || strings.Contains(rawErr, "no such") {
+				return false, nil
+			}
+			return false, fmt.Errorf("fallback token existence check failed after non-JSON token list response: %w", err)
+		}
 		return false, fmt.Errorf("parse proxmox token list JSON: %w", err)
 	}
 
