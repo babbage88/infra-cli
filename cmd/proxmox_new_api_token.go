@@ -13,6 +13,9 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 	Short: "Create a new Proxmox API token for a user via SSH on a Proxmox node",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := proxmoxNewTokenFlags
+		if cfg.Yolo {
+			fmt.Println("YOLO mode enabled: this will create a token for root@pam and grant every discovered privilege at /.")
+		}
 		if err := promptForMissingProxmoxNewTokenValues(&cfg); err != nil {
 			return err
 		}
@@ -33,6 +36,12 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 
 		fmt.Printf("Created Proxmox API token %s.\n", createdToken.FullTokenID)
 		fmt.Printf("Token secret: %s\n", createdToken.Secret)
+
+		verification, err := verifyProxmoxTokenCoversInfraCtlCommands(sshClient, cfg, createdToken)
+		if err != nil {
+			return fmt.Errorf("post-create token verification failed: %w", err)
+		}
+		printProxmoxTokenVerification(verification)
 
 		if cfg.WriteDefaultConfig {
 			encodedTokenID := base64.StdEncoding.EncodeToString([]byte(createdToken.FullTokenID))
@@ -58,6 +67,20 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 	if strings.TrimSpace(cfg.PveNode) == "" {
 		cfg.PveNode = promptInputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
 	}
+	if cfg.Yolo {
+		cfg.Username = "root"
+		cfg.Realm = "pam"
+		cfg.UserID = "root@pam"
+		cfg.ACLPath = "/"
+		cfg.Role = infraCtlYoloRoleName
+		if strings.TrimSpace(cfg.TokenID) == "" {
+			cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-yolo", "infractl-yolo")
+		}
+		if strings.TrimSpace(cfg.Comment) == "" {
+			cfg.Comment = promptOptionalInput("Token comment", "Created by infractl --yolo")
+		}
+		return nil
+	}
 	if strings.TrimSpace(cfg.UserID) == "" {
 		if strings.TrimSpace(cfg.Username) == "" {
 			cfg.Username = promptInputWithExample("Proxmox username", "infractl", "")
@@ -74,7 +97,7 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 		cfg.Comment = promptOptionalInput("Token comment", "Created by infractl")
 	}
 	if strings.TrimSpace(cfg.Role) == "" {
-		cfg.Role = promptInputWithExample("Role to assign for VM/LXC management", "PVEAdmin", "PVEAdmin")
+		cfg.Role = promptInputWithExample("Role to assign for VM/LXC management", infraCtlManagerRoleName, infraCtlManagerRoleName)
 	}
 	if strings.TrimSpace(cfg.ACLPath) == "" {
 		cfg.ACLPath = promptInputWithExample("ACL path", "/", "/")
@@ -92,9 +115,10 @@ func init() {
 	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.Realm, "realm", "pve", "Proxmox realm")
 	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.TokenID, "token-id", "", "API token ID")
 	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.Comment, "comment", "", "Comment to attach to the API token")
-	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.Role, "role", "PVEAdmin", "Role to apply for VM and LXC management")
+	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.Role, "role", infraCtlManagerRoleName, "Role to apply for VM and LXC management")
 	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.ACLPath, "acl-path", "/", "ACL path to grant the role on")
 	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.Privsep, "privsep", false, "Create the token with privilege separation enabled")
 	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.WriteDefaultConfig, "write-default-config", false, "Write the new token ID and secret to the default config file as base64 values")
 	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.Force, "force", false, "Delete and recreate the API token without prompting if it already exists")
+	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.Yolo, "yolo", false, "Grant full discovered cluster privileges to both the user and token")
 }

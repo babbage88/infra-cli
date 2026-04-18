@@ -494,6 +494,12 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmo
 		AssignedRoles:      assignedRoles,
 		AssignedPrivileges: assignedPrivs,
 	}
+	if strings.TrimSpace(cfg.ACLPath) != "" && strings.TrimSpace(cfg.ACLPath) != "/" {
+		verification.MissingCapabilities = append(
+			verification.MissingCapabilities,
+			fmt.Sprintf("ACL path %s is narrower than /, so verification does not imply cluster-wide access for every infractl proxmox subcommand", cfg.ACLPath),
+		)
+	}
 
 	ctx := context.Background()
 	if _, err := client.ListVMs(ctx, cfg.PveNode, false); err != nil {
@@ -580,4 +586,27 @@ func missingPrivileges(have []string, required []string) []string {
 	}
 
 	return dedupeAndSortStrings(missing)
+}
+
+func printProxmoxTokenVerification(verification *proxmoxTokenVerification) {
+	if verification == nil {
+		return
+	}
+
+	fmt.Println("Verification summary:")
+	if len(verification.AssignedRoles) > 0 {
+		fmt.Printf("  Assigned roles: %s\n", strings.Join(verification.AssignedRoles, ", "))
+	}
+	if len(verification.AssignedPrivileges) > 0 {
+		fmt.Printf("  Assigned privileges: %s\n", strings.Join(verification.AssignedPrivileges, ", "))
+	}
+	for _, check := range verification.DirectChecks {
+		fmt.Printf("  Direct check OK: %s\n", check)
+	}
+	for _, check := range verification.InferredChecks {
+		fmt.Printf("  Permission coverage OK: %s\n", check)
+	}
+	for _, check := range verification.MissingCapabilities {
+		fmt.Printf("  Missing or failed: %s\n", check)
+	}
 }
