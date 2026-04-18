@@ -305,24 +305,12 @@ func proxmoxUserExistsOverSSH(sshClient *goph.Client, userID string) (bool, erro
 func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (bool, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "list", userID, "--output-format", "json")
 	if err != nil {
-		return false, err
+		return proxmoxTokenExistsFallbackOverSSH(sshClient, userID, tokenID)
 	}
 
 	var payload []map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
-		raw := strings.TrimSpace(string(out))
-		if strings.HasPrefix(strings.ToUpper(raw), "USAGE:") || strings.HasPrefix(strings.ToUpper(raw), "ERROR:") {
-			out, err = runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", userID+"!"+tokenID)
-			if err == nil {
-				return true, nil
-			}
-			rawErr := err.Error()
-			if strings.Contains(rawErr, "not exist") || strings.Contains(rawErr, "does not exist") || strings.Contains(rawErr, "no such") {
-				return false, nil
-			}
-			return false, fmt.Errorf("fallback token existence check failed after non-JSON token list response: %w", err)
-		}
-		return false, fmt.Errorf("parse proxmox token list JSON: %w", err)
+		return proxmoxTokenExistsFallbackOverSSH(sshClient, userID, tokenID)
 	}
 
 	for _, item := range payload {
@@ -332,6 +320,41 @@ func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (
 	}
 
 	return false, nil
+}
+
+func proxmoxTokenExistsFallbackOverSSH(sshClient *goph.Client, userID, tokenID string) (bool, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "list", userID)
+	if err == nil {
+		if proxmoxTokenListContainsToken(string(out), tokenID) {
+			return true, nil
+		}
+		return false, nil
+	}
+
+	out, err = runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", userID+"!"+tokenID)
+	if err == nil {
+		return true, nil
+	}
+
+	rawErr := strings.ToLower(err.Error())
+	if strings.Contains(rawErr, "not exist") || strings.Contains(rawErr, "does not exist") || strings.Contains(rawErr, "no such") {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("fallback token existence checks failed: %w", err)
+}
+
+func proxmoxTokenListContainsToken(output, tokenID string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == tokenID {
+			return true
+		}
+	}
+	return false
 }
 
 func deleteProxmoxUserOverSSH(sshClient *goph.Client, userID string) error {
@@ -396,12 +419,12 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "list", "--output-format", "json")
 	if err != nil {
-		return nil, err
+		return listProxmoxRolesFallbackOverSSH(sshClient)
 	}
 
 	var payload []map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
-		return nil, fmt.Errorf("parse proxmox role list JSON: %w", err)
+		return listProxmoxRolesFallbackOverSSH(sshClient)
 	}
 
 	roles := make([]proxmoxRoleInfo, 0, len(payload))
@@ -420,12 +443,12 @@ func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) 
 func listProxmoxACLsOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "acl", "list", "--output-format", "json")
 	if err != nil {
-		return nil, err
+		return listProxmoxACLsFallbackOverSSH(sshClient)
 	}
 
 	var payload []map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
-		return nil, fmt.Errorf("parse proxmox ACL list JSON: %w", err)
+		return listProxmoxACLsFallbackOverSSH(sshClient)
 	}
 
 	acls := make([]proxmoxACLInfo, 0, len(payload))
@@ -444,6 +467,91 @@ func listProxmoxACLsOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
 			RoleID:    roleID,
 			Propagate: propagate,
 		})
+	}
+
+	return acls, nil
+}
+
+func listProxmoxRolesFallbackOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "list")
+	if err != nil {
+		return nil, fmt.Errorf("list proxmox roles via plain-text fallback: %w", err)
+	}
+
+	roles := make([]proxmoxRoleInfo, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "ROLEID") || strings.HasPrefix(upper, "USAGE:") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+
+		roleID := strings.TrimSpace(fields[0])
+		if roleID == "" {
+			continue
+		}
+
+		privs := splitPrivilegeString(strings.Join(fields[1:], " "))
+		roles = append(roles, proxmoxRoleInfo{RoleID: roleID, Privs: privs})
+	}
+
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("parse proxmox role list fallback output: no roles found")
+	}
+
+	return roles, nil
+}
+
+func listProxmoxACLsFallbackOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "acl", "list")
+	if err != nil {
+		return nil, fmt.Errorf("list proxmox ACLs via plain-text fallback: %w", err)
+	}
+
+	acls := make([]proxmoxACLInfo, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "PATH") || strings.HasPrefix(upper, "ACLPATH") || strings.HasPrefix(upper, "USAGE:") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+
+		propagate := false
+		lastField := strings.ToLower(fields[len(fields)-1])
+		if lastField == "0" || lastField == "1" || lastField == "true" || lastField == "false" {
+			propagate = lastField == "1" || lastField == "true"
+			fields = fields[:len(fields)-1]
+		}
+		if len(fields) < 3 {
+			continue
+		}
+
+		acls = append(acls, proxmoxACLInfo{
+			Path:      strings.TrimSpace(fields[0]),
+			Principal: strings.TrimSpace(fields[1]),
+			RoleID:    strings.TrimSpace(fields[2]),
+			Propagate: propagate,
+		})
+	}
+
+	if len(acls) == 0 {
+		return nil, fmt.Errorf("parse proxmox ACL list fallback output: no ACLs found")
 	}
 
 	return acls, nil
