@@ -192,14 +192,7 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 
 func ensureInfractlRolesForTokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOptions) (string, string, error) {
 	if cfg.Yolo {
-		allPrivs, err := discoverAllAvailablePrivilegesOverSSH(sshClient)
-		if err != nil {
-			return "", "", fmt.Errorf("discover all available privileges for --yolo: %w", err)
-		}
-		if err := ensureProxmoxRoleOverSSH(sshClient, infraCtlYoloRoleName, allPrivs); err != nil {
-			return "", "", fmt.Errorf("ensure YOLO role %s: %w", infraCtlYoloRoleName, err)
-		}
-		return infraCtlYoloRoleName, infraCtlYoloRoleName, nil
+		return "", "", nil
 	}
 
 	if strings.TrimSpace(cfg.Role) != "" && cfg.Role != infraCtlManagerRoleName {
@@ -399,9 +392,38 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 		}
 	}
 
+	if jsonPayload := extractJSONObjectFromOutput(trimmed); jsonPayload != "" {
+		if err := json.Unmarshal([]byte(jsonPayload), &payload); err == nil {
+			if value := strings.TrimSpace(fmt.Sprintf("%v", payload["value"])); value != "" && value != "<nil>" {
+				if full := strings.TrimSpace(fmt.Sprintf("%v", payload["full-tokenid"])); full != "" && full != "<nil>" {
+					fullTokenID = full
+				}
+				return proxmoxCreatedToken{
+					FullTokenID: fullTokenID,
+					Secret:      value,
+				}, nil
+			}
+		}
+	}
+
 	lines := strings.Split(trimmed, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &payload); err == nil {
+			if value := strings.TrimSpace(fmt.Sprintf("%v", payload["value"])); value != "" && value != "<nil>" {
+				if full := strings.TrimSpace(fmt.Sprintf("%v", payload["full-tokenid"])); full != "" && full != "<nil>" {
+					fullTokenID = full
+				}
+				return proxmoxCreatedToken{
+				FullTokenID: fullTokenID,
+				Secret:      value,
+			}, nil
+		}
+	}
+
 		if strings.HasPrefix(strings.ToLower(line), "value") {
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
@@ -414,6 +436,15 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 	}
 
 	return proxmoxCreatedToken{}, fmt.Errorf("created token but could not parse the token secret from output: %s", trimmed)
+}
+
+func extractJSONObjectFromOutput(output string) string {
+	start := strings.Index(output, "{")
+	end := strings.LastIndex(output, "}")
+	if start == -1 || end == -1 || end < start {
+		return ""
+	}
+	return strings.TrimSpace(output[start : end+1])
 }
 
 func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
@@ -485,7 +516,10 @@ func listProxmoxRolesFallbackOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo,
 			continue
 		}
 		upper := strings.ToUpper(line)
-		if strings.HasPrefix(upper, "ROLEID") || strings.HasPrefix(upper, "USAGE:") {
+		if strings.HasPrefix(upper, "ROLEID") ||
+			strings.HasPrefix(upper, "USAGE:") ||
+			strings.HasPrefix(strings.ToLower(line), "user config -") ||
+			strings.HasPrefix(line, "400 ") {
 			continue
 		}
 
@@ -640,6 +674,18 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmo
 		verification.DirectChecks = append(verification.DirectChecks, fmt.Sprintf("proxmox lxc create template lookup (%d templates)", len(templates)))
 	}
 
+	if cfg.Yolo && !cfg.Privsep && cfg.UserID == "root@pam" {
+		verification.InferredChecks = append(verification.InferredChecks,
+			"proxmox vm get (inherited from root@pam via non-privsep token)",
+			"proxmox vm start (inherited from root@pam via non-privsep token)",
+			"proxmox vm set (inherited from root@pam via non-privsep token)",
+			"proxmox vm create (inherited from root@pam via non-privsep token)",
+			"proxmox lxc create (inherited from root@pam via non-privsep token)",
+			"proxmox lxc batch (inherited from root@pam via non-privsep token)",
+		)
+		return verification, nil
+	}
+
 	verifyCapability := func(command string, required []string) {
 		missing := missingPrivileges(assignedPrivs, required)
 		if len(missing) == 0 {
@@ -662,7 +708,27 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmo
 func splitPrivilegeString(value string) []string {
 	value = strings.ReplaceAll(strings.TrimSpace(value), ",", " ")
 	fields := strings.Fields(value)
-	return dedupeAndSortStrings(fields)
+	filtered := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if isLikelyProxmoxPrivilege(field) {
+			filtered = append(filtered, field)
+		}
+	}
+	return dedupeAndSortStrings(filtered)
+}
+
+func isLikelyProxmoxPrivilege(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.Contains(value, ".") {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func dedupeAndSortStrings(values []string) []string {

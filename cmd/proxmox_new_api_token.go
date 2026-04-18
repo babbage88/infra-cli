@@ -13,9 +13,9 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 	Short: "Create a new Proxmox API token for a user via SSH on a Proxmox node",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := proxmoxNewTokenFlags
-		if cfg.Yolo {
-			fmt.Println("YOLO mode enabled: this will create a token for root@pam and grant every discovered privilege at /.")
-		}
+	if cfg.Yolo {
+		fmt.Println("YOLO mode enabled: this will create a non-privsep token for root@pam so it inherits root permissions.")
+	}
 		if err := promptForMissingProxmoxNewTokenValues(&cfg); err != nil {
 			return err
 		}
@@ -72,7 +72,8 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 		cfg.Realm = "pam"
 		cfg.UserID = "root@pam"
 		cfg.ACLPath = "/"
-		cfg.Role = infraCtlYoloRoleName
+		cfg.Privsep = false
+		cfg.Role = ""
 		if strings.TrimSpace(cfg.TokenID) == "" {
 			cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-yolo-unsafe", "infractl-yolo-unsafe")
 		}
