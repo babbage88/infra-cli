@@ -15,6 +15,7 @@ type proxmoxNewUserOptions struct {
 	Realm    string
 	Comment  string
 	Password string
+	Force    bool
 }
 
 type proxmoxNewTokenOptions struct {
@@ -28,6 +29,7 @@ type proxmoxNewTokenOptions struct {
 	ACLPath            string
 	Privsep            bool
 	WriteDefaultConfig bool
+	Force              bool
 }
 
 type proxmoxCreatedToken struct {
@@ -64,8 +66,24 @@ func initializeProxmoxAdminSSH(pveNode string) (*goph.Client, error) {
 	)
 }
 
-func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions) error {
+func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions) (bool, error) {
 	userID := fmt.Sprintf("%s@%s", strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Realm))
+	exists, err := proxmoxUserExistsOverSSH(sshClient, userID)
+	if err != nil {
+		return false, fmt.Errorf("check whether proxmox user %s exists: %w", userID, err)
+	}
+	if exists {
+		if !cfg.Force {
+			if !promptYesNo(fmt.Sprintf("Proxmox user %s already exists and will be deleted before recreating it. Continue?", userID), false) {
+				fmt.Printf("Skipped recreating Proxmox user %s.\n", userID)
+				return false, nil
+			}
+		}
+		if err := deleteProxmoxUserOverSSH(sshClient, userID); err != nil {
+			return false, fmt.Errorf("delete existing proxmox user %s: %w", userID, err)
+		}
+	}
+
 	args := []string{"pveum", "user", "add", userID}
 	if strings.TrimSpace(cfg.Comment) != "" {
 		args = append(args, "--comment", cfg.Comment)
@@ -74,11 +92,31 @@ func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions)
 		args = append(args, "--password", cfg.Password)
 	}
 
-	_, err := runRemoteQuotedCommand(sshClient, args...)
-	return err
+	_, err = runRemoteQuotedCommand(sshClient, args...)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOptions) (proxmoxCreatedToken, error) {
+	exists, err := proxmoxTokenExistsOverSSH(sshClient, cfg.UserID, cfg.TokenID)
+	if err != nil {
+		return proxmoxCreatedToken{}, fmt.Errorf("check whether API token %s!%s exists: %w", cfg.UserID, cfg.TokenID, err)
+	}
+	if exists {
+		fullTokenID := fmt.Sprintf("%s!%s", cfg.UserID, cfg.TokenID)
+		if !cfg.Force {
+			if !promptYesNo(fmt.Sprintf("API token %s already exists and will be deleted before recreating it. Continue?", fullTokenID), false) {
+				fmt.Printf("Skipped recreating Proxmox API token %s.\n", fullTokenID)
+				return proxmoxCreatedToken{}, nil
+			}
+		}
+		if err := deleteProxmoxAPITokenOverSSH(sshClient, cfg.UserID, cfg.TokenID); err != nil {
+			return proxmoxCreatedToken{}, fmt.Errorf("delete existing API token %s: %w", fullTokenID, err)
+		}
+	}
+
 	aclArgs := []string{
 		"pveum", "aclmod", cfg.ACLPath,
 		"-user", cfg.UserID,
@@ -113,6 +151,56 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 	}
 
 	return createdToken, nil
+}
+
+func proxmoxUserExistsOverSSH(sshClient *goph.Client, userID string) (bool, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "list", "--output-format", "json")
+	if err != nil {
+		return false, err
+	}
+
+	var payload []map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return false, fmt.Errorf("parse proxmox user list JSON: %w", err)
+	}
+
+	for _, item := range payload {
+		if strings.TrimSpace(fmt.Sprintf("%v", item["userid"])) == userID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (bool, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "list", userID, "--output-format", "json")
+	if err != nil {
+		return false, err
+	}
+
+	var payload []map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return false, fmt.Errorf("parse proxmox token list JSON: %w", err)
+	}
+
+	for _, item := range payload {
+		if strings.TrimSpace(fmt.Sprintf("%v", item["tokenid"])) == tokenID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func deleteProxmoxUserOverSSH(sshClient *goph.Client, userID string) error {
+	_, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "delete", userID)
+	return err
+}
+
+func deleteProxmoxAPITokenOverSSH(sshClient *goph.Client, userID, tokenID string) error {
+	_, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "delete", userID, tokenID)
+	return err
 }
 
 func runRemoteQuotedCommand(sshClient *goph.Client, args ...string) ([]byte, error) {

@@ -22,10 +22,13 @@ var proxmoxNewPVEUserCmd = &cobra.Command{
 		}
 		defer sshClient.Close()
 
-		if err := createProxmoxUserOverSSH(sshClient, cfg); err != nil {
+		created, err := createProxmoxUserOverSSH(sshClient, cfg)
+		if err != nil {
 			return err
 		}
-
+		if !created {
+			return nil
+		}
 		fmt.Printf("Created Proxmox user %s@%s on %s.\n", cfg.Username, cfg.Realm, cfg.PveNode)
 		return nil
 	},
@@ -62,4 +65,5 @@ func init() {
 	proxmoxNewPVEUserCmd.Flags().StringVar(&proxmoxNewUserFlags.Realm, "realm", "pve", "Proxmox realm")
 	proxmoxNewPVEUserCmd.Flags().StringVar(&proxmoxNewUserFlags.Comment, "comment", "", "Comment to attach to the Proxmox user")
 	proxmoxNewPVEUserCmd.Flags().StringVar(&proxmoxNewUserFlags.Password, "password", "", "Optional password for the new Proxmox user")
+	proxmoxNewPVEUserCmd.Flags().BoolVar(&proxmoxNewUserFlags.Force, "force", false, "Delete and recreate the user without prompting if it already exists")
 }

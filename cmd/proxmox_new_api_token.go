@@ -27,6 +27,9 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if strings.TrimSpace(createdToken.FullTokenID) == "" {
+			return nil
+		}
 
 		fmt.Printf("Created Proxmox API token %s.\n", createdToken.FullTokenID)
 		fmt.Printf("Token secret: %s\n", createdToken.Secret)
@@ -92,4 +95,5 @@ func init() {
 	proxmoxNewAPITokenCmd.Flags().StringVar(&proxmoxNewTokenFlags.ACLPath, "acl-path", "/", "ACL path to grant the role on")
 	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.Privsep, "privsep", false, "Create the token with privilege separation enabled")
 	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.WriteDefaultConfig, "write-default-config", false, "Write the new token ID and secret to the default config file as base64 values")
+	proxmoxNewAPITokenCmd.Flags().BoolVar(&proxmoxNewTokenFlags.Force, "force", false, "Delete and recreate the API token without prompting if it already exists")
 }
