@@ -150,6 +150,7 @@ func loadRootConfigFile() error {
 	if err := rootViperCfg.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read root config: %w", err)
 	}
+	normalizeProxmoxConfigValues(rootViperCfg)
 
 	rootViperCfg.WatchConfig()
 	return nil

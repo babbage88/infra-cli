@@ -54,3 +54,4 @@ go.work.sum
 .env
 hostnames.yaml
 .gocache/
+pve_example.yaml

@@ -22,8 +22,8 @@ const (
 
 var deployViper *viper.Viper
 
-var deployCmd = &cobra.Command{
-	Use:          "deploy",
+var deployAppSystemdCmd = &cobra.Command{
+	Use:          "app-systemd",
 	Short:        "Deploy a Go application as a remote systemd service",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -119,29 +119,29 @@ var deployFlags DeployFlags
 func init() {
 	deployViper = viper.New()
 
-	rootCmd.AddCommand(deployCmd)
+	deployCmd.AddCommand(deployAppSystemdCmd)
 
-	deployCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "Application name")
-	deployCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "Environment variables to write to the remote env file")
-	deployCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "", "User account that will run the service; defaults to app-name")
-	deployCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for the service account")
-	deployCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "", "Destination binary name on the remote host; defaults to app-name")
-	deployCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "", "Remote install directory; defaults to /opt/<app-name>")
-	deployCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", "Optional env file to merge into the remote service env file")
-	deployCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", defaultSystemdDir, "Directory where systemd unit files are stored")
-	deployCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Local source directory for the application")
-	deployCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "", "Local binary to upload directly")
-	deployCmd.Flags().StringVar(&deployFlags.SourceGoModule, "source-go-module", "", "Local Go module directory to build before deploying")
-	deployCmd.Flags().StringVar(&deployFlags.SourceRepo, "source-repo", "", "Git repository URL to clone and build before deploying")
-	deployCmd.Flags().StringVar(&deployFlags.SourceRef, "source-ref", "", "Optional git branch, tag, or commit to build from when using --source-repo")
-	deployCmd.Flags().StringVar(&deployFlags.SourcePackage, "source-package", ".", "Go package to build within the module or repo")
-	deployCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", "", "Remote host to deploy to; defaults to global --ssh-remote-host")
-	deployCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Deprecated: remote deployment is always used by this command")
-	deployCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging")
-	deployCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", "", "Remote SSH user to connect with; defaults to global --ssh-remote-user")
-	deployCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude during build")
+	deployAppSystemdCmd.Flags().StringVarP(&deployFlags.AppName, "app-name", "a", "", "Application name")
+	deployAppSystemdCmd.Flags().StringToStringVar(&deployFlags.EnvVars, "env-vars", nil, "Environment variables to write to the remote env file")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.ServiceUser, "service-user", "", "User account that will run the service; defaults to app-name")
+	deployAppSystemdCmd.Flags().Int64Var(&deployFlags.ServiceUid, "service-uid", 8888, "UID for the service account")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.DestinationBinary, "dst-bin", "", "Destination binary name on the remote host; defaults to app-name")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.InstallDir, "install-dir", "", "Remote install directory; defaults to /opt/<app-name>")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.EnvFile, "env-file", "", "Optional env file to merge into the remote service env file")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SystemdDir, "systemd-dir", defaultSystemdDir, "Directory where systemd unit files are stored")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourceDir, "source-dir", ".", "Local source directory for the application")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourceBin, "source-bin", "", "Local binary to upload directly")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourceGoModule, "source-go-module", "", "Local Go module directory to build before deploying")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourceRepo, "source-repo", "", "Git repository URL to clone and build before deploying")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourceRef, "source-ref", "", "Optional git branch, tag, or commit to build from when using --source-repo")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.SourcePackage, "source-package", ".", "Go package to build within the module or repo")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.RemoteHostName, "remote-host", "", "Remote host to deploy to; defaults to global --ssh-remote-host")
+	deployAppSystemdCmd.Flags().BoolVar(&deployFlags.RemoteDeployment, "remote-deployment", true, "Deprecated: remote deployment is always used by this command")
+	deployAppSystemdCmd.Flags().BoolVar(&deployFlags.VerboseLogging, "verbose", true, "Verbose build logging")
+	deployAppSystemdCmd.Flags().StringVar(&deployFlags.RemoteSshUser, "remote-ssh-user", "", "Remote SSH user to connect with; defaults to global --ssh-remote-user")
+	deployAppSystemdCmd.Flags().StringSliceVar(&deployFlags.SourceExcludes, "exclude-files", nil, "Files to exclude during build")
 
-	_ = deployViper.BindPFlags(deployCmd.Flags())
+	_ = deployViper.BindPFlags(deployAppSystemdCmd.Flags())
 }
 
 func resolveDeployFlags() (DeployFlags, error) {

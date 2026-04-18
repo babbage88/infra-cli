@@ -40,6 +40,7 @@ func newProxmoxClientFromViperConfig(vp *viper.Viper) (*proxmox.Client, error) {
 	var pveUserOrToken string
 	var pveSecretOrPassword string
 
+	normalizeProxmoxConfigValues(vp)
 	proxmoxApiUrl = vp.GetString("proxmox_api_url")
 	useToken = vp.GetBool("use_token")
 	skipTLS = vp.GetBool("skip_tls")
@@ -130,6 +131,7 @@ func loadProxmoxConfigFile(path string, vp *viper.Viper) error {
 		if err := vp.ReadInConfig(); err != nil {
 			return fmt.Errorf("failed to read config file: %w", err)
 		}
+		normalizeProxmoxConfigValues(vp)
 		slog.Debug("Debug vp config", slog.String("proxmox_api_token", vp.GetString("proxmox_api_token")))
 		apiCheck := vp.GetString("api_token")
 		err := validateProxmoxApiToken(apiCheck, vp)
@@ -145,12 +147,14 @@ func loadProxmoxConfigFile(path string, vp *viper.Viper) error {
 
 func validateProxmoxApiToken(apiCheck string, vp *viper.Viper) error {
 	if apiCheck == "" {
-		apiTokenFromRoot := rootViperCfg.GetString("proxmox_api_token")
-		switch len(apiTokenFromRoot) {
-		case 0:
+		tokenID, secret := resolveConfiguredProxmoxTokenParts(rootViperCfg)
+		switch {
+		case tokenID == "" || secret == "":
 			return fmt.Errorf("no proxmox api token supplied")
 		default:
-			vp.Set("api_token", apiTokenFromRoot)
+			vp.Set("api_token", fmt.Sprintf("%s=%s", tokenID, secret))
+			vp.Set("proxmox_api_token", tokenID)
+			vp.Set("proxmox_api_secret", secret)
 			return nil
 		}
 	} else {
