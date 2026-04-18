@@ -118,6 +118,7 @@ func (c *Client) ListLxcTemplates(ctx context.Context, node string) ([]string, e
 
 	templates := make([]string, 0)
 	seen := make(map[string]struct{})
+	var skippedErrors []string
 
 	for _, storage := range storages {
 		if storage.Enabled == 0 || !storage.Supports(LxcTemplates) {
@@ -126,6 +127,10 @@ func (c *Client) ListLxcTemplates(ctx context.Context, node string) ([]string, e
 
 		items, err := c.ListStorageContent(ctx, node, storage.Storage, LxcTemplates)
 		if err != nil {
+			if apiErr, ok := err.(*APIError); ok && (apiErr.Status == 501 || apiErr.Status == 403 || apiErr.Status == 400) {
+				skippedErrors = append(skippedErrors, fmt.Sprintf("%s(status=%d)", storage.Storage, apiErr.Status))
+				continue
+			}
 			return nil, fmt.Errorf("list templates for storage %q: %w", storage.Storage, err)
 		}
 
@@ -142,5 +147,8 @@ func (c *Client) ListLxcTemplates(ctx context.Context, node string) ([]string, e
 	}
 
 	slices.Sort(templates)
+	if len(templates) == 0 && len(skippedErrors) > 0 {
+		return nil, fmt.Errorf("no templates found via API; skipped unsupported storages: %s", strings.Join(skippedErrors, ", "))
+	}
 	return templates, nil
 }

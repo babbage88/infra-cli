@@ -37,13 +37,14 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 		if cfg.WriteDefaultConfig {
 			encodedTokenID := base64.StdEncoding.EncodeToString([]byte(createdToken.FullTokenID))
 			encodedSecret := base64.StdEncoding.EncodeToString([]byte(createdToken.Secret))
-			if err := writeRootConfigValues(map[string]string{
+			targetPath, err := writeDefaultRootConfigValues(map[string]string{
 				"proxmox_api_token":  encodedTokenID,
 				"proxmox_api_secret": encodedSecret,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("write proxmox credentials to default config: %w", err)
 			}
-			fmt.Println("Wrote base64-encoded proxmox_api_token and proxmox_api_secret to your default config.")
+			fmt.Printf("Wrote base64-encoded proxmox_api_token and proxmox_api_secret to %s.\n", targetPath)
 		}
 
 		return nil

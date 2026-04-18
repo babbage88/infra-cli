@@ -136,11 +136,16 @@ func combinedProxmoxToken(parts proxmoxTokenParts) string {
 }
 
 func writeRootConfigValues(updates map[string]string) error {
-	targetPath := ""
-	if rootViperCfg != nil {
-		targetPath = rootViperCfg.ConfigFileUsed()
-	}
-	if targetPath == "" {
+	_, err := writeConfigValues(filepath.Join(GetConfigPath(), "default.yaml"), updates)
+	return err
+}
+
+func writeDefaultRootConfigValues(updates map[string]string) (string, error) {
+	return writeConfigValues(filepath.Join(GetConfigPath(), "default.yaml"), updates)
+}
+
+func writeConfigValues(targetPath string, updates map[string]string) (string, error) {
+	if strings.TrimSpace(targetPath) == "" {
 		targetPath = filepath.Join(GetConfigPath(), "default.yaml")
 	}
 
@@ -149,15 +154,15 @@ func writeRootConfigValues(updates map[string]string) error {
 		switch strings.ToLower(filepath.Ext(targetPath)) {
 		case ".json":
 			if err := json.Unmarshal(data, &existing); err != nil {
-				return fmt.Errorf("decode json config %q: %w", targetPath, err)
+				return "", fmt.Errorf("decode json config %q: %w", targetPath, err)
 			}
 		case ".toml":
 			if err := toml.Unmarshal(data, &existing); err != nil {
-				return fmt.Errorf("decode toml config %q: %w", targetPath, err)
+				return "", fmt.Errorf("decode toml config %q: %w", targetPath, err)
 			}
 		default:
 			if err := yaml.Unmarshal(data, &existing); err != nil {
-				return fmt.Errorf("decode yaml config %q: %w", targetPath, err)
+				return "", fmt.Errorf("decode yaml config %q: %w", targetPath, err)
 			}
 		}
 	}
@@ -167,12 +172,12 @@ func writeRootConfigValues(updates map[string]string) error {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
+		return "", fmt.Errorf("create config directory: %w", err)
 	}
 
 	file, err := os.Create(targetPath)
 	if err != nil {
-		return fmt.Errorf("open config file %q: %w", targetPath, err)
+		return "", fmt.Errorf("open config file %q: %w", targetPath, err)
 	}
 	defer file.Close()
 
@@ -181,17 +186,17 @@ func writeRootConfigValues(updates map[string]string) error {
 		encoder := json.NewEncoder(file)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(existing); err != nil {
-			return fmt.Errorf("write json config %q: %w", targetPath, err)
+			return "", fmt.Errorf("write json config %q: %w", targetPath, err)
 		}
 	case ".toml":
 		if err := toml.NewEncoder(file).Encode(existing); err != nil {
-			return fmt.Errorf("write toml config %q: %w", targetPath, err)
+			return "", fmt.Errorf("write toml config %q: %w", targetPath, err)
 		}
 	default:
 		encoder := yaml.NewEncoder(file)
 		defer encoder.Close()
 		if err := encoder.Encode(existing); err != nil {
-			return fmt.Errorf("write yaml config %q: %w", targetPath, err)
+			return "", fmt.Errorf("write yaml config %q: %w", targetPath, err)
 		}
 	}
 
@@ -202,5 +207,5 @@ func writeRootConfigValues(updates map[string]string) error {
 		normalizeProxmoxConfigValues(rootViperCfg)
 	}
 
-	return nil
+	return targetPath, nil
 }

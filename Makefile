@@ -6,13 +6,15 @@ ARTIFACT:=$(ARTIFACT_DIR)/$(BIN_NAME)
 DEFAULT_CONFIG_DIR:=~/.config/infractl
 DEFAULT_CFG_FILE:=default.yaml
 ifeq ($(OS_ARCH),Darwin)
-	DEFAULT_CONFIG_DIR = $(HOME)/Library/Application\ Support/infractl
+	DEFAULT_CONFIG_DIR = $(HOME)/Library/Application Support/infractl
 else ifeq ($(OS_ARCH),Linux)
 	DEFAULT_CONFIG_DIR = $(HOME)/.config/infractl
 else
 	$(error "Unsupported OS: $(OS_ARCH)")
 endif
 PVE_CONFIG_FILE:=pve.yaml
+DEFAULT_CFG_PATH=$(DEFAULT_CONFIG_DIR)/$(DEFAULT_CFG_FILE)
+PVE_CONFIG_PATH=$(DEFAULT_CONFIG_DIR)/$(PVE_CONFIG_FILE)
 MAIN_BRANCH:=master
 VERSION_TYPE:=patch
 export CUR_USER:=$(shell whoami)
@@ -94,13 +96,19 @@ install: build
 	@echo "[INFO] ensuring install path: $(INSTALL_PATH) exists..."
 	@mkdir -p $(INSTALL_PATH)
 	@echo "[INFO] creating the default config dir: $(DEFAULT_CONFIG_DIR)"
-	@mkdir -p $(DEFAULT_CONFIG_DIR)
-	@echo "[INFO] Copying default config file: $(DEFAULT_CFG_FILE) to $(DEFAULT_CONFIG_DIR)"
-	@cp $(DEFAULT_CFG_FILE) $(DEFAULT_CONFIG_DIR)
-	@echo "[INFO] Copying default pve config file: $(PVE_CONFIG_FILE) to $(DEFAULT_CONFIG_DIR)"
-	@cp $(PVE_CONFIG_FILE) $(DEFAULT_CONFIG_DIR)
+	@mkdir -p "$(DEFAULT_CONFIG_DIR)"
+	@echo "[INFO] Checking if $(DEFAULT_CFG_PATH) exists..."
+	@if [ ! -f "$(DEFAULT_CFG_PATH)" ]; then \
+		echo "[INFO] Copying default config file: $(DEFAULT_CFG_FILE) to $(DEFAULT_CONFIG_DIR)"; \
+		cp "$(DEFAULT_CFG_FILE)" "$(DEFAULT_CONFIG_DIR)"; \
+	fi
+	@echo "[INFO] Checking if $(PVE_CONFIG_PATH) exists..."
+	@if [ ! -f "$(PVE_CONFIG_PATH)" ]; then \
+		echo "[INFO] Copying default pve config file: $(PVE_CONFIG_FILE) to $(DEFAULT_CONFIG_DIR)"; \
+		cp "$(PVE_CONFIG_FILE)" "$(DEFAULT_CONFIG_DIR)"; \
+	fi
 	@echo "[INFO] moving release artifact: $(ARTIFACT) to $(INSTALL_PATH)/$(BIN_NAME)"
-	@mv $(ARTIFACT) $(INSTALL_PATH)/$(BIN_NAME)
+	@mv "$(ARTIFACT)" "$(INSTALL_PATH)/$(BIN_NAME)"
 
 .PHONY: build-validate utils-dir utils build build-quiet build-release release-artifact install fetch-tags check-builder create-builder buildandpush buildandpush-dbhelper
 

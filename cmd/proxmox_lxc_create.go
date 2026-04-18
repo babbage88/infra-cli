@@ -301,9 +301,10 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 	}
 	defer sshClient.Close()
 
-	output, err := infraSSH.RunCommandAndCaptureOutput(sshClient, "sh", []string{"-lc", "pvesm status --content vztmpl --enabled 1 | awk 'NR>1 {print $1}' | while read -r storage; do pvesm list \"$storage\" --content vztmpl 2>/dev/null | awk 'NR>1 {print $1}'; done"})
+	script := `pvesm status --enabled 1 | awk 'NR>1 {print $1}' | while read -r storage; do pvesm list "$storage" 2>/dev/null | awk 'NR>1 && $1 ~ /:vztmpl\// {print $1}'; done`
+	output, err := sshClient.Run("sh -c " + shellQuote(script))
 	if err != nil {
-		return nil, err
+		return nil, formatSSHExecError(err, output)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")

@@ -1,12 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/babbage88/goph/v2"
+	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
+)
+
+const (
+	infraCtlManagerRoleName = "InfraCtlProxmoxManager"
+	infraCtlYoloRoleName    = "InfraCtlProxmoxYOLO"
 )
 
 type proxmoxNewUserOptions struct {
@@ -30,11 +38,32 @@ type proxmoxNewTokenOptions struct {
 	Privsep            bool
 	WriteDefaultConfig bool
 	Force              bool
+	Yolo               bool
 }
 
 type proxmoxCreatedToken struct {
 	FullTokenID string
 	Secret      string
+}
+
+type proxmoxRoleInfo struct {
+	RoleID string
+	Privs  []string
+}
+
+type proxmoxACLInfo struct {
+	Path      string
+	Principal string
+	RoleID    string
+	Propagate bool
+}
+
+type proxmoxTokenVerification struct {
+	AssignedRoles       []string
+	AssignedPrivileges  []string
+	DirectChecks        []string
+	InferredChecks      []string
+	MissingCapabilities []string
 }
 
 var (
@@ -117,13 +146,15 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 		}
 	}
 
-	aclArgs := []string{
-		"pveum", "aclmod", cfg.ACLPath,
-		"-user", cfg.UserID,
-		"-role", cfg.Role,
+	userRoleName, tokenRoleName, err := ensureInfractlRolesForTokenOverSSH(sshClient, cfg)
+	if err != nil {
+		return proxmoxCreatedToken{}, err
 	}
-	if _, err := runRemoteQuotedCommand(sshClient, aclArgs...); err != nil {
-		return proxmoxCreatedToken{}, fmt.Errorf("apply ACL for %s on %s: %w", cfg.UserID, cfg.ACLPath, err)
+
+	if userRoleName != "" {
+		if err := assignRoleToProxmoxPrincipalOverSSH(sshClient, cfg.ACLPath, "user", cfg.UserID, userRoleName); err != nil {
+			return proxmoxCreatedToken{}, fmt.Errorf("apply ACL for user %s on %s: %w", cfg.UserID, cfg.ACLPath, err)
+		}
 	}
 
 	privsepValue := "0"
@@ -150,7 +181,105 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 		return proxmoxCreatedToken{}, err
 	}
 
+	if tokenRoleName != "" {
+		if err := assignRoleToProxmoxPrincipalOverSSH(sshClient, cfg.ACLPath, "token", createdToken.FullTokenID, tokenRoleName); err != nil {
+			return proxmoxCreatedToken{}, fmt.Errorf("apply ACL for token %s on %s: %w", createdToken.FullTokenID, cfg.ACLPath, err)
+		}
+	}
+
 	return createdToken, nil
+}
+
+func ensureInfractlRolesForTokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOptions) (string, string, error) {
+	if cfg.Yolo {
+		allPrivs, err := discoverAllAvailablePrivilegesOverSSH(sshClient)
+		if err != nil {
+			return "", "", fmt.Errorf("discover all available privileges for --yolo: %w", err)
+		}
+		if err := ensureProxmoxRoleOverSSH(sshClient, infraCtlYoloRoleName, allPrivs); err != nil {
+			return "", "", fmt.Errorf("ensure YOLO role %s: %w", infraCtlYoloRoleName, err)
+		}
+		return infraCtlYoloRoleName, infraCtlYoloRoleName, nil
+	}
+
+	if strings.TrimSpace(cfg.Role) != "" && cfg.Role != infraCtlManagerRoleName {
+		if cfg.Privsep {
+			return "", cfg.Role, nil
+		}
+		return cfg.Role, "", nil
+	}
+
+	managerPrivs := infractlManagerPrivileges()
+	if err := ensureProxmoxRoleOverSSH(sshClient, infraCtlManagerRoleName, managerPrivs); err != nil {
+		return "", "", fmt.Errorf("ensure manager role %s: %w", infraCtlManagerRoleName, err)
+	}
+
+	if cfg.Privsep {
+		return "", infraCtlManagerRoleName, nil
+	}
+
+	return infraCtlManagerRoleName, "", nil
+}
+
+func infractlManagerPrivileges() []string {
+	return []string{
+		"Datastore.AllocateSpace",
+		"Datastore.Audit",
+		"Pool.Allocate",
+		"SDN.Use",
+		"VM.Allocate",
+		"VM.Audit",
+		"VM.Clone",
+		"VM.Console",
+		"VM.Config.CDROM",
+		"VM.Config.CPU",
+		"VM.Config.Cloudinit",
+		"VM.Config.Disk",
+		"VM.Config.HWType",
+		"VM.Config.Memory",
+		"VM.Config.Network",
+		"VM.Config.Options",
+		"VM.Migrate",
+		"VM.Monitor",
+		"VM.PowerMgmt",
+	}
+}
+
+func ensureProxmoxRoleOverSSH(sshClient *goph.Client, roleName string, privs []string) error {
+	privs = dedupeAndSortStrings(privs)
+	privString := strings.Join(privs, " ")
+	if _, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "modify", roleName, "--privs", privString); err == nil {
+		return nil
+	}
+
+	_, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "add", roleName, "--privs", privString)
+	return err
+}
+
+func discoverAllAvailablePrivilegesOverSSH(sshClient *goph.Client) ([]string, error) {
+	roleInfos, err := listProxmoxRolesOverSSH(sshClient)
+	if err != nil {
+		return nil, err
+	}
+
+	var privs []string
+	for _, role := range roleInfos {
+		privs = append(privs, role.Privs...)
+	}
+
+	return dedupeAndSortStrings(privs), nil
+}
+
+func assignRoleToProxmoxPrincipalOverSSH(sshClient *goph.Client, aclPath, principalKind, principalID, roleName string) error {
+	args := []string{"pveum", "aclmod", aclPath, "-role", roleName}
+	switch principalKind {
+	case "token":
+		args = append(args, "-token", principalID)
+	default:
+		args = append(args, "-user", principalID)
+	}
+	_, err := runRemoteQuotedCommand(sshClient, args...)
+	return err
 }
 
 func proxmoxUserExistsOverSSH(sshClient *goph.Client, userID string) (bool, error) {
@@ -250,4 +379,205 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 	}
 
 	return proxmoxCreatedToken{}, fmt.Errorf("created token but could not parse the token secret from output: %s", trimmed)
+}
+
+func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "list", "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var payload []map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil, fmt.Errorf("parse proxmox role list JSON: %w", err)
+	}
+
+	roles := make([]proxmoxRoleInfo, 0, len(payload))
+	for _, item := range payload {
+		roleID := strings.TrimSpace(fmt.Sprintf("%v", item["roleid"]))
+		if roleID == "" {
+			continue
+		}
+		privs := splitPrivilegeString(fmt.Sprintf("%v", item["privs"]))
+		roles = append(roles, proxmoxRoleInfo{RoleID: roleID, Privs: privs})
+	}
+
+	return roles, nil
+}
+
+func listProxmoxACLsOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "acl", "list", "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var payload []map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return nil, fmt.Errorf("parse proxmox ACL list JSON: %w", err)
+	}
+
+	acls := make([]proxmoxACLInfo, 0, len(payload))
+	for _, item := range payload {
+		principal := strings.TrimSpace(fmt.Sprintf("%v", item["ugid"]))
+		if principal == "" {
+			continue
+		}
+		roleID := strings.TrimSpace(fmt.Sprintf("%v", item["roleid"]))
+		path := strings.TrimSpace(fmt.Sprintf("%v", item["path"]))
+		propagate := strings.EqualFold(strings.TrimSpace(fmt.Sprintf("%v", item["propagate"])), "1") ||
+			strings.EqualFold(strings.TrimSpace(fmt.Sprintf("%v", item["propagate"])), "true")
+		acls = append(acls, proxmoxACLInfo{
+			Path:      path,
+			Principal: principal,
+			RoleID:    roleID,
+			Propagate: propagate,
+		})
+	}
+
+	return acls, nil
+}
+
+func inspectProxmoxAuthOverSSH(sshClient *goph.Client, userID, tokenFullID string) ([]string, []string, error) {
+	roleInfos, err := listProxmoxRolesOverSSH(sshClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	acls, err := listProxmoxACLsOverSSH(sshClient)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	roleMap := make(map[string][]string, len(roleInfos))
+	for _, role := range roleInfos {
+		roleMap[role.RoleID] = role.Privs
+	}
+
+	roleSet := make(map[string]struct{})
+	privSet := make(map[string]struct{})
+	for _, acl := range acls {
+		if acl.Principal != userID && acl.Principal != tokenFullID {
+			continue
+		}
+		roleSet[acl.RoleID] = struct{}{}
+		for _, priv := range roleMap[acl.RoleID] {
+			privSet[priv] = struct{}{}
+		}
+	}
+
+	return mapKeysSorted(roleSet), mapKeysSorted(privSet), nil
+}
+
+func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmoxNewTokenOptions, createdToken proxmoxCreatedToken) (*proxmoxTokenVerification, error) {
+	assignedRoles, assignedPrivs, err := inspectProxmoxAuthOverSSH(sshClient, cfg.UserID, createdToken.FullTokenID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect assigned ACLs and roles: %w", err)
+	}
+
+	hostURL := strings.TrimSpace(rootViperCfg.GetString("proxmox_api_url"))
+	if hostURL == "" {
+		hostURL = strings.TrimSpace(rootViperCfg.GetString("proxmox_host"))
+	}
+	if hostURL == "" {
+		hostURL = defaultProxmoxHostURL(cfg.PveNode)
+	}
+
+	tokenID, secret, err := proxmox.ParseAPIToken(fmt.Sprintf("%s=%s", createdToken.FullTokenID, createdToken.Secret))
+	if err != nil {
+		return nil, fmt.Errorf("parse created token for verification: %w", err)
+	}
+	client, err := proxmox.NewClientToken(hostURL, tokenID, secret, true)
+	if err != nil {
+		return nil, fmt.Errorf("create proxmox client for verification: %w", err)
+	}
+
+	verification := &proxmoxTokenVerification{
+		AssignedRoles:      assignedRoles,
+		AssignedPrivileges: assignedPrivs,
+	}
+
+	ctx := context.Background()
+	if _, err := client.ListVMs(ctx, cfg.PveNode, false); err != nil {
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("proxmox vm list direct API smoke test failed: %v", err))
+	} else {
+		verification.DirectChecks = append(verification.DirectChecks, "proxmox vm list")
+	}
+
+	if storages, err := client.ListNodeStorage(ctx, cfg.PveNode); err != nil {
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("proxmox lxc create storage lookup failed: %v", err))
+	} else {
+		verification.DirectChecks = append(verification.DirectChecks, fmt.Sprintf("proxmox lxc create storage lookup (%d storages)", len(storages)))
+	}
+
+	if templates, err := client.ListLxcTemplates(ctx, cfg.PveNode); err != nil {
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("proxmox lxc create template lookup failed: %v", err))
+	} else {
+		verification.DirectChecks = append(verification.DirectChecks, fmt.Sprintf("proxmox lxc create template lookup (%d templates)", len(templates)))
+	}
+
+	verifyCapability := func(command string, required []string) {
+		missing := missingPrivileges(assignedPrivs, required)
+		if len(missing) == 0 {
+			verification.InferredChecks = append(verification.InferredChecks, fmt.Sprintf("%s (via privileges)", command))
+			return
+		}
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("%s missing privileges: %s", command, strings.Join(missing, ", ")))
+	}
+
+	verifyCapability("proxmox vm get", []string{"VM.Audit"})
+	verifyCapability("proxmox vm start", []string{"VM.PowerMgmt"})
+	verifyCapability("proxmox vm set", []string{"VM.Config.CPU", "VM.Config.Memory", "VM.Config.Options"})
+	verifyCapability("proxmox vm create", []string{"VM.Allocate", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Options"})
+	verifyCapability("proxmox lxc create", []string{"VM.Allocate", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options", "Datastore.Audit", "Datastore.AllocateSpace"})
+	verifyCapability("proxmox lxc batch", []string{"VM.Allocate", "VM.Config.CPU", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options", "Datastore.Audit", "Datastore.AllocateSpace"})
+
+	return verification, nil
+}
+
+func splitPrivilegeString(value string) []string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	return dedupeAndSortStrings(fields)
+}
+
+func dedupeAndSortStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func mapKeysSorted[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func missingPrivileges(have []string, required []string) []string {
+	haveSet := make(map[string]struct{}, len(have))
+	for _, value := range have {
+		haveSet[value] = struct{}{}
+	}
+
+	missing := make([]string, 0)
+	for _, value := range required {
+		if _, ok := haveSet[value]; ok {
+			continue
+		}
+		missing = append(missing, value)
+	}
+
+	return dedupeAndSortStrings(missing)
 }
