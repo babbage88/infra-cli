@@ -7,6 +7,6 @@ import (
 )
 
 func main() {
-	configureDefaultLogger(slog.LevelInfo)
+	configureDefaultLogger(slog.LevelWarn)
 	cmd.Execute()
 }

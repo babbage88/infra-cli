@@ -20,8 +20,6 @@ import (
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/babbage88/infra-cli/tui"
-	"github.com/charmbracelet/glamour"
-	glamansi "github.com/charmbracelet/glamour/ansi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -721,6 +719,7 @@ type lxcSSHForceDoneMsg struct {
 type lxcSSHForceViewportModel struct {
 	viewport     viewport.Model
 	entries      []lxcSSHForceLogEntry
+	statuses     []lxcSSHForceLogEntry
 	done         bool
 	ipAddr       string
 	err          error
@@ -728,16 +727,15 @@ type lxcSSHForceViewportModel struct {
 }
 
 func newLxcSSHForceViewportModel() lxcSSHForceViewportModel {
-	vp := viewport.New(viewport.WithWidth(96), viewport.WithHeight(18))
-	vp.SoftWrap = true
+	vp := viewport.New(viewport.WithWidth(104), viewport.WithHeight(16))
+	vp.SoftWrap = false
 	vp.FillHeight = true
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3B4250")).
-		Padding(1, 2).
-		Background(lipgloss.Color("#101216"))
+		BorderForeground(lipgloss.Color("#343A43")).
+		Padding(0, 1)
 
-	model := lxcSSHForceViewportModel{viewport: vp, contentWidth: 88}
+	model := lxcSSHForceViewportModel{viewport: vp, contentWidth: 100}
 	model.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: "Forcing container SSH readiness..."})
 	return model
 }
@@ -749,9 +747,11 @@ func (m lxcSSHForceViewportModel) Init() tea.Cmd {
 func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.viewport.SetWidth(max(24, msg.Width))
-		m.viewport.SetHeight(max(6, msg.Height-4))
-		m.contentWidth = max(20, msg.Width-m.viewport.Style.GetHorizontalFrameSize()-4)
+		width := min(112, max(72, msg.Width-8))
+		height := min(18, max(8, msg.Height-13))
+		m.viewport.SetWidth(width)
+		m.viewport.SetHeight(height)
+		m.contentWidth = max(32, width-m.viewport.Style.GetHorizontalFrameSize()-2)
 		m.renderContent()
 	case tea.KeyPressMsg:
 		if m.done {
@@ -788,160 +788,142 @@ func (m lxcSSHForceViewportModel) View() tea.View {
 	}
 
 	header := lxcSSHForceTitleStyle.Render("LXC SSH force setup") + " " + status + "\n"
+	statusPanel := m.statusPanel()
 	footer := lxcSSHForceHelpStyle.Render("Scroll: up/down, pgup/pgdn")
 	if m.done {
 		footer += lxcSSHForceHelpStyle.Render("  Close: enter/q/esc")
 	}
 
-	return tea.NewView(header + m.viewport.View() + "\n" + footer)
+	outputTitle := lxcSSHForceSectionTitleStyle.Render("stdout / stderr")
+	return tea.NewView(header + statusPanel + "\n" + outputTitle + "\n" + m.viewport.View() + "\n" + footer)
 }
 
 func (m *lxcSSHForceViewportModel) appendEntry(entry lxcSSHForceLogEntry) {
 	entry.Body = strings.TrimRight(entry.Body, "\n")
 	m.entries = append(m.entries, entry)
+	if entry.Kind == lxcSSHForceLogStatus {
+		m.statuses = append(m.statuses, entry)
+	}
 	m.renderContent()
 }
 
 func (m *lxcSSHForceViewportModel) renderContent() {
-	rendered, err := renderLxcSSHForceMarkdown(m.entries, m.contentWidth)
-	if err != nil {
-		rendered = lxcSSHForcePlainMarkdown(m.entries)
-	}
-	m.viewport.SetContent(strings.TrimRight(rendered, "\n"))
+	m.viewport.SetContent(strings.TrimRight(renderLxcSSHForceCommandEntries(m.entries, m.contentWidth), "\n"))
 	m.viewport.GotoBottom()
 }
 
-var (
-	lxcSSHForceTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8A929E"))
-	lxcSSHForceMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#636A73"))
-	lxcSSHForceHelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#505761"))
-	lxcSSHForceSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B8F71"))
-	lxcSSHForceErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#A36A6A"))
-)
-
-func renderLxcSSHForceMarkdown(entries []lxcSSHForceLogEntry, width int) (string, error) {
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStyles(lxcSSHForceGlamourStyle()),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		return "", err
+func (m lxcSSHForceViewportModel) statusPanel() string {
+	width := max(32, m.viewport.Width())
+	bodyWidth := max(20, width-2)
+	statuses := m.statuses
+	if len(statuses) > 4 {
+		statuses = statuses[len(statuses)-4:]
 	}
-	return renderer.Render(lxcSSHForcePlainMarkdown(entries))
+
+	var lines []string
+	for _, status := range statuses {
+		label := "infractl"
+		if strings.TrimSpace(status.Label) != "" {
+			label = status.Label
+		}
+		line := label + "  " + status.Body
+		lines = append(lines, truncatePlain(line, bodyWidth))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "waiting for status...")
+	}
+
+	for i, line := range lines {
+		lines[i] = lxcSSHForceStatusStyle.Render(truncatePlain(line, bodyWidth))
+	}
+
+	return lxcSSHForceSectionTitleStyle.Render("status") + "\n" +
+		lxcSSHForceStatusPanelStyle.Width(width).Render(strings.Join(lines, "\n")) + "\n"
 }
 
-func lxcSSHForcePlainMarkdown(entries []lxcSSHForceLogEntry) string {
+var (
+	lxcSSHForceSectionTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#68717C")).PaddingLeft(1)
+	lxcSSHForceTitleStyle         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8A929E"))
+	lxcSSHForceMutedStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#5D646F"))
+	lxcSSHForceHelpStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#4E5560"))
+	lxcSSHForceSuccessStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6F9276"))
+	lxcSSHForceErrorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#AA7070"))
+	lxcSSHForceStatusStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C747D"))
+	lxcSSHForceStatusLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7F8D8A"))
+	lxcSSHForceCommandBlockStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#707883"))
+	lxcSSHForceCommandHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#848B96"))
+	lxcSSHForceStatusPanelStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#343A43")).Padding(0, 1)
+)
+
+func renderLxcSSHForceCommandEntries(entries []lxcSSHForceLogEntry, width int) string {
 	var builder strings.Builder
-	builder.WriteString("## Activity\n\n")
 	for _, entry := range entries {
-		switch entry.Kind {
-		case lxcSSHForceLogCommand:
-			builder.WriteString("#### STDOUT / STDERR")
-			if strings.TrimSpace(entry.Label) != "" {
-				builder.WriteString(": `" + escapeMarkdownInline(entry.Label) + "`")
-			}
-			builder.WriteString("\n\n```text\n")
-			builder.WriteString(strings.TrimRight(entry.Body, "\n"))
-			builder.WriteString("\n```\n\n")
-		default:
-			label := "infractl"
-			if strings.TrimSpace(entry.Label) != "" {
-				label = entry.Label
-			}
-			builder.WriteString("> **" + escapeMarkdownInline(label) + "** " + escapeMarkdownText(entry.Body) + "\n\n")
+		if entry.Kind != lxcSSHForceLogCommand {
+			continue
 		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(renderLxcSSHForceCommandEntry(entry, width))
+	}
+	if builder.Len() == 0 {
+		builder.WriteString(lxcSSHForceMutedStyle.Render("Waiting for stdout/stderr..."))
+		builder.WriteString("\n")
 	}
 	return builder.String()
 }
 
-func lxcSSHForceGlamourStyle() glamansi.StyleConfig {
-	gray := "#717780"
-	dim := "#565D66"
-	bg := "#101216"
-	codeBg := "#15181D"
-	border := "#4D5360"
-	accent := "#7A8191"
-	infractl := "#7D8B87"
-	bold := true
-	faint := true
-	zero := uint(0)
-	one := uint(1)
-	two := uint(2)
-
-	return glamansi.StyleConfig{
-		Document: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &gray, BackgroundColor: &bg},
-			Margin:         &zero,
-		},
-		Paragraph: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &gray},
-			Margin:         &zero,
-		},
-		Heading: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &accent, Bold: &bold},
-			Margin:         &zero,
-		},
-		H2: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &accent, Bold: &bold, Prefix: "## "},
-			Margin:         &zero,
-		},
-		H4: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &dim, Bold: &bold},
-			Margin:         &zero,
-		},
-		BlockQuote: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &infractl},
-			Indent:         &two,
-			IndentToken:    stringPtr("│ "),
-			Margin:         &zero,
-		},
-		Strong: glamansi.StylePrimitive{Color: &infractl, Bold: &bold},
-		Code: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &gray, BackgroundColor: &codeBg},
-		},
-		CodeBlock: glamansi.StyleCodeBlock{
-			StyleBlock: glamansi.StyleBlock{
-				StylePrimitive: glamansi.StylePrimitive{
-					Color:           &gray,
-					BackgroundColor: &codeBg,
-				},
-				Margin: &one,
-			},
-			Chroma: &glamansi.Chroma{
-				Text:       glamansi.StylePrimitive{Color: &gray, BackgroundColor: &codeBg},
-				Background: glamansi.StylePrimitive{BackgroundColor: &codeBg},
-				Comment:    glamansi.StylePrimitive{Color: &dim, Faint: &faint},
-				Name:       glamansi.StylePrimitive{Color: &gray},
-				Keyword:    glamansi.StylePrimitive{Color: &border},
-				Literal:    glamansi.StylePrimitive{Color: &gray},
-			},
-		},
-		Text: glamansi.StylePrimitive{Color: &gray},
+func renderLxcSSHForceCommandEntry(entry lxcSSHForceLogEntry, width int) string {
+	width = max(32, width)
+	bodyWidth := max(20, width-2)
+	label := "command"
+	if strings.TrimSpace(entry.Label) != "" {
+		label = entry.Label
 	}
+	label = truncatePlain(label, bodyWidth)
+
+	var builder strings.Builder
+	builder.WriteString(lxcSSHForceCommandHeaderStyle.Render(label))
+	builder.WriteString("\n")
+	for _, line := range strings.Split(wrapPreformatted(entry.Body, bodyWidth), "\n") {
+		builder.WriteString(lxcSSHForceCommandBlockStyle.Render("  " + line))
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
 
-func escapeMarkdownInline(value string) string {
-	value = strings.ReplaceAll(value, "\\", "\\\\")
-	value = strings.ReplaceAll(value, "`", "\\`")
-	value = strings.ReplaceAll(value, "[", "\\[")
-	value = strings.ReplaceAll(value, "]", "\\]")
-	return value
+func wrapPreformatted(value string, width int) string {
+	lines := strings.Split(strings.TrimRight(value, "\n"), "\n")
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		for len(line) > width {
+			wrapped = append(wrapped, line[:width])
+			line = line[width:]
+		}
+		wrapped = append(wrapped, line)
+	}
+	return strings.Join(wrapped, "\n")
 }
 
-func escapeMarkdownText(value string) string {
-	replacer := strings.NewReplacer(
-		"\\", "\\\\",
-		"*", "\\*",
-		"_", "\\_",
-		"`", "\\`",
-		"[", "\\[",
-		"]", "\\]",
-	)
-	return replacer.Replace(value)
+func truncatePlain(value string, width int) string {
+	if width <= 0 || len(value) <= width {
+		return value
+	}
+	if width <= 1 {
+		return value[:width]
+	}
+	return value[:width-1] + "…"
 }
 
-func stringPtr(value string) *string {
-	return &value
+func padPlainRight(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
 }
 
 func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
