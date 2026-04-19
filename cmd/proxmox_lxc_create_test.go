@@ -54,6 +54,8 @@ func TestLxcSSHForceBootstrapScriptIncludesAdminSetup(t *testing.T) {
 		"install_pkg sudo",
 		"admin_user='deploy'",
 		"admin_uid='1001'",
+		"ensure_account_allows_ssh_public_key_login \"$admin_user\"",
+		"printf '%s:%s\\n' \"$user_name\" \"$(random_account_password)\" | chpasswd",
 		"printf '%s ALL=(ALL) NOPASSWD:ALL\\n' \"$admin_user\" > '/etc/sudoers.d/90-infractl-deploy'",
 		"ensure_authorized_keys \"$admin_user\" \"$admin_home\"",
 	} {

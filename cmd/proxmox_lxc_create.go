@@ -1212,6 +1212,8 @@ ensure_authorized_keys() {
 ` + strings.Join(keys, "\n") + `
 INFRACTL_SSH_KEYS
 	if [ "$user_name" != "root" ]; then
+		chown "$user_name:$user_name" "$user_home" 2>/dev/null || chown "$user_name" "$user_home" 2>/dev/null || true
+		chmod 0755 "$user_home" 2>/dev/null || true
 		chown -R "$user_name:$user_name" "$user_home/.ssh" 2>/dev/null || chown -R "$user_name" "$user_home/.ssh"
 	fi
 }
@@ -1272,6 +1274,37 @@ admin_uid=` + adminUID + `
 user_home_from_passwd() {
 	awk -F: -v user="$1" '$1 == user {print $6; exit}' /etc/passwd
 }
+account_password_field() {
+	awk -F: -v user="$1" '$1 == user {print $2; exit}' /etc/shadow 2>/dev/null || true
+}
+random_account_password() {
+	if command -v openssl >/dev/null 2>&1; then
+		openssl rand -base64 24
+	elif command -v base64 >/dev/null 2>&1; then
+		dd if=/dev/urandom bs=24 count=1 2>/dev/null | base64
+	else
+		dd if=/dev/urandom bs=24 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
+	fi
+}
+ensure_account_allows_ssh_public_key_login() {
+	user_name="$1"
+	password_field=$(account_password_field "$user_name")
+	case "$password_field" in
+		""|"!"|"!!"|"*"|!* )
+			log_step "setting random locked-account password field for $user_name"
+			if command -v chpasswd >/dev/null 2>&1; then
+				printf '%s:%s\n' "$user_name" "$(random_account_password)" | chpasswd
+			elif command -v passwd >/dev/null 2>&1; then
+				passwd -u "$user_name" >/dev/null 2>&1 || true
+			elif command -v usermod >/dev/null 2>&1; then
+				usermod -U "$user_name" >/dev/null 2>&1 || true
+			else
+				echo "no supported command found to make $user_name eligible for SSH public-key login" >&2
+				exit 1
+			fi
+			;;
+	esac
+}
 if id "$admin_user" >/dev/null 2>&1; then
 	log_step "admin user $admin_user already exists"
 	admin_home=$(user_home_from_passwd "$admin_user")
@@ -1290,6 +1323,7 @@ else
 	admin_home=$(user_home_from_passwd "$admin_user")
 fi
 [ -n "$admin_home" ] || admin_home="/home/$admin_user"
+ensure_account_allows_ssh_public_key_login "$admin_user"
 log_step "writing sudoers rule for $admin_user"
 install -d -m 0755 /etc/sudoers.d
 printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$admin_user" > ` + sudoersPath + `
