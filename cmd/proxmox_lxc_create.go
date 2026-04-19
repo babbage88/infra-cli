@@ -587,6 +587,7 @@ func (m sshPublicKeySelectModel) Init() tea.Cmd {
 func (m sshPublicKeySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		key := msg.Key()
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			m.cancel = true
@@ -605,15 +606,20 @@ func (m sshPublicKeySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.options)-1 {
 				m.cursor++
 			}
-		case " ":
-			if _, ok := m.selected[m.cursor]; ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+		}
+		if key.Code == tea.KeySpace || key.Text == " " || msg.String() == "space" {
+			m.toggleSelected()
 		}
 	}
 	return m, nil
+}
+
+func (m *sshPublicKeySelectModel) toggleSelected() {
+	if _, ok := m.selected[m.cursor]; ok {
+		delete(m.selected, m.cursor)
+		return
+	}
+	m.selected[m.cursor] = struct{}{}
 }
 
 func (m sshPublicKeySelectModel) View() tea.View {
