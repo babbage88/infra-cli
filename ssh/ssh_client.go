@@ -25,6 +25,11 @@ type RemoteAppDeploymentAgent struct {
 	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
+type PublicKeyOption struct {
+	Path    string
+	Content string
+}
+
 var ignoreHostKeyVerification bool
 
 func SetIgnoreHostKeyVerification(ignore bool) {
@@ -437,20 +442,31 @@ func FormatExecError(err error, out []byte) error {
 }
 
 func DiscoverPublicKeyContents(explicitPrivateKeyPath string) []string {
-	candidates := make([]string, 0, 5)
+	options := DiscoverPublicKeyOptions(explicitPrivateKeyPath)
+	keys := make([]string, 0, len(options))
+	for _, option := range options {
+		keys = append(keys, option.Content)
+	}
+	return keys
+}
+
+func DiscoverPublicKeyOptions(explicitPrivateKeyPath string) []PublicKeyOption {
+	candidates := make([]string, 0, 16)
 	if explicitPrivateKeyPath = strings.TrimSpace(explicitPrivateKeyPath); explicitPrivateKeyPath != "" {
 		candidates = append(candidates, ExpandPath(explicitPrivateKeyPath)+".pub")
 	}
-	for _, path := range []string{
-		"~/.ssh/id_ed25519.pub",
-		"~/.ssh/id_rsa.pub",
-		"~/.ssh/id_ecdsa.pub",
-		"~/.ssh/id_dsa.pub",
-	} {
-		candidates = append(candidates, ExpandPath(path))
+
+	sshDir := ExpandPath("~/.ssh")
+	if entries, err := os.ReadDir(sshDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pub") {
+				continue
+			}
+			candidates = append(candidates, filepath.Join(sshDir, entry.Name()))
+		}
 	}
 
-	keys := make([]string, 0, len(candidates))
+	options := make([]PublicKeyOption, 0, len(candidates))
 	seen := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
@@ -471,10 +487,10 @@ func DiscoverPublicKeyContents(explicitPrivateKeyPath string) []string {
 		if key == "" {
 			continue
 		}
-		keys = append(keys, key)
+		options = append(options, PublicKeyOption{Path: candidate, Content: key})
 	}
 
-	return keys
+	return options
 }
 
 func InitializeSshClient(hostname, username, sshKey, sshPassphrase string, useAgent bool, port uint) (*goph.Client, error) {
