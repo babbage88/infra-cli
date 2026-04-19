@@ -21,6 +21,84 @@ var (
 	promptHelpStyle  = lipgloss.NewStyle().Faint(true)
 )
 
+// CleanTerminalLogText removes terminal control bytes from command output before
+// it is rendered inside styled Bubble Tea views.
+func CleanTerminalLogText(value string) string {
+	value = stripANSISequences(value)
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+
+	runes := make([]rune, 0, len(value))
+	lineStart := 0
+	for _, r := range value {
+		switch {
+		case r == '\n':
+			runes = append(runes, r)
+			lineStart = len(runes)
+		case r == '\r':
+			runes = runes[:lineStart]
+		case r == '\t':
+			runes = append(runes, r)
+		case r == '\b':
+			if len(runes) > lineStart {
+				runes = runes[:len(runes)-1]
+			}
+		case r >= 0x20 && r != 0x7f:
+			runes = append(runes, r)
+		}
+	}
+
+	lines := strings.Split(string(runes), "\n")
+	cleaned := lines[:0]
+	for _, line := range lines {
+		line = strings.TrimRight(line, " \t")
+		if line == "" {
+			if len(cleaned) == 0 || cleaned[len(cleaned)-1] == "" {
+				continue
+			}
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.TrimRight(strings.Join(cleaned, "\n"), "\n")
+}
+
+func stripANSISequences(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if value[i] != 0x1b {
+			builder.WriteByte(value[i])
+			continue
+		}
+		i++
+		if i >= len(value) {
+			break
+		}
+		switch value[i] {
+		case '[':
+			for i+1 < len(value) {
+				i++
+				if value[i] >= 0x40 && value[i] <= 0x7e {
+					break
+				}
+			}
+		case ']':
+			for i+1 < len(value) {
+				i++
+				if value[i] == 0x07 {
+					break
+				}
+				if value[i] == 0x1b && i+1 < len(value) && value[i+1] == '\\' {
+					i++
+					break
+				}
+			}
+		default:
+			// Two-byte escape sequences, such as ESC c.
+		}
+	}
+	return builder.String()
+}
+
 type inputModel struct {
 	label        string
 	defaultValue string

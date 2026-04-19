@@ -802,7 +802,8 @@ func (m lxcSSHForceViewportModel) View() tea.View {
 }
 
 func (m *lxcSSHForceViewportModel) appendEntry(entry lxcSSHForceLogEntry) {
-	entry.Body = strings.TrimRight(entry.Body, "\n")
+	entry.Label = tui.CleanTerminalLogText(entry.Label)
+	entry.Body = strings.TrimRight(tui.CleanTerminalLogText(entry.Body), "\n")
 	m.entries = append(m.entries, entry)
 	if entry.Kind == lxcSSHForceLogStatus {
 		m.statuses = append(m.statuses, entry)
@@ -817,7 +818,8 @@ func (m *lxcSSHForceViewportModel) renderContent() {
 
 func (m lxcSSHForceViewportModel) statusPanel() string {
 	width := max(32, m.viewport.Width())
-	bodyWidth := max(20, width-2)
+	style := lxcSSHForceStatusPanelStyle.Width(max(20, width-lxcSSHForceStatusPanelStyle.GetHorizontalFrameSize()))
+	bodyWidth := max(20, width-style.GetHorizontalFrameSize())
 	statuses := m.statuses
 	if len(statuses) > 4 {
 		statuses = statuses[len(statuses)-4:]
@@ -841,7 +843,7 @@ func (m lxcSSHForceViewportModel) statusPanel() string {
 	}
 
 	return lxcSSHForceSectionTitleStyle.Render("status") + "\n" +
-		lxcSSHForceStatusPanelStyle.Width(width).Render(strings.Join(lines, "\n")) + "\n"
+		style.Render(strings.Join(lines, "\n")) + "\n"
 }
 
 var (
@@ -883,7 +885,7 @@ func renderLxcSSHForceCommandEntry(entry lxcSSHForceLogEntry, width int) string 
 	bodyWidth := max(20, width-2)
 	label := "command"
 	if strings.TrimSpace(entry.Label) != "" {
-		label = entry.Label
+		label = tui.CleanTerminalLogText(entry.Label)
 	}
 	label = truncatePlain(label, bodyWidth)
 
@@ -898,7 +900,7 @@ func renderLxcSSHForceCommandEntry(entry lxcSSHForceLogEntry, width int) string 
 }
 
 func wrapPreformatted(value string, width int) string {
-	lines := strings.Split(strings.TrimRight(value, "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(tui.CleanTerminalLogText(value), "\n"), "\n")
 	wrapped := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if line == "" {
@@ -1058,19 +1060,34 @@ func ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient *goph.Client, vmid int, 
 
 	lxcSSHForceStatusf(log, "Ensuring SSH server, authorized_keys, and requested users inside container %d...", vmid)
 
-	script := `set -eu
+	script := lxcSSHForceBootstrapScript(keys, options)
+	if _, err := runPctExecShellScriptWithLog(sshClient, vmid, script, log); err != nil {
+		return fmt.Errorf("ensure SSH server, users, and authorized_keys in container %d: %w", vmid, err)
+	}
+	return nil
+}
+
+func lxcSSHForceBootstrapScript(keys []string, options lxcSSHForceOptions) string {
+	return `set -eu
 if [ -r /etc/os-release ]; then . /etc/os-release; fi
+export LC_ALL=C
+export LANG=C
+export LANGUAGE=C
+log_step() {
+	printf 'infractl: %s\n' "$*"
+}
 has_sshd() {
 	command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || [ -x /usr/local/sbin/sshd ]
 }
 install_pkg() {
+	log_step "installing packages: $*"
 	if command -v dnf >/dev/null 2>&1; then
 		dnf -y install "$@"
 	elif command -v yum >/dev/null 2>&1; then
 		yum -y install "$@"
 	elif command -v apt-get >/dev/null 2>&1; then
 		apt-get update
-		DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+		DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none apt-get install -y "$@"
 	elif command -v zypper >/dev/null 2>&1; then
 		zypper --non-interactive install "$@"
 	elif command -v apk >/dev/null 2>&1; then
@@ -1083,6 +1100,7 @@ install_pkg() {
 	fi
 }
 if ! has_sshd; then
+	log_step "SSH server is missing; installing it"
 	if command -v dnf >/dev/null 2>&1; then
 		install_pkg openssh-server
 	elif command -v yum >/dev/null 2>&1; then
@@ -1099,10 +1117,13 @@ if ! has_sshd; then
 		echo "no supported package manager found to install openssh-server" >&2
 		exit 1
 	fi
+else
+	log_step "SSH server is already installed"
 fi
 ensure_authorized_keys() {
 	user_name="$1"
 	user_home="$2"
+	log_step "ensuring authorized_keys for $user_name"
 	install -d -m 0700 "$user_home/.ssh"
 	touch "$user_home/.ssh/authorized_keys"
 	chmod 0600 "$user_home/.ssh/authorized_keys"
@@ -1119,17 +1140,21 @@ INFRACTL_SSH_KEYS
 ensure_authorized_keys root /root
 ` + adminUserBootstrapScript(options) + `
 if command -v ssh-keygen >/dev/null 2>&1; then
+	log_step "generating SSH host keys"
 	ssh-keygen -A
 fi
 if command -v systemctl >/dev/null 2>&1; then
+	log_step "enabling SSH service"
 	systemctl enable --now sshd >/dev/null 2>&1 || systemctl enable --now ssh >/dev/null 2>&1 || true
 fi
 if ! pgrep -x sshd >/dev/null 2>&1; then
 	if command -v service >/dev/null 2>&1; then
+		log_step "starting SSH service"
 		service sshd start >/dev/null 2>&1 || service ssh start >/dev/null 2>&1 || true
 	fi
 fi
 if ! pgrep -x sshd >/dev/null 2>&1; then
+	log_step "starting sshd directly"
 	if command -v sshd >/dev/null 2>&1; then
 		sshd
 	elif [ -x /usr/sbin/sshd ]; then
@@ -1138,12 +1163,8 @@ if ! pgrep -x sshd >/dev/null 2>&1; then
 		/usr/local/sbin/sshd
 	fi
 fi
+log_step "verifying SSH daemon"
 pgrep -x sshd >/dev/null 2>&1`
-
-	if _, err := runPctExecShellScriptWithLog(sshClient, vmid, script, log); err != nil {
-		return fmt.Errorf("ensure SSH server, users, and authorized_keys in container %d: %w", vmid, err)
-	}
-	return nil
 }
 
 func adminUserBootstrapScript(options lxcSSHForceOptions) string {
@@ -1157,7 +1178,10 @@ func adminUserBootstrapScript(options lxcSSHForceOptions) string {
 
 	return `
 if ! command -v sudo >/dev/null 2>&1; then
+	log_step "sudo is missing; installing it"
 	install_pkg sudo
+else
+	log_step "sudo is already installed"
 fi
 admin_user=` + adminUser + `
 admin_uid=` + adminUID + `
@@ -1165,8 +1189,10 @@ user_home_from_passwd() {
 	awk -F: -v user="$1" '$1 == user {print $6; exit}' /etc/passwd
 }
 if id "$admin_user" >/dev/null 2>&1; then
+	log_step "admin user $admin_user already exists"
 	admin_home=$(user_home_from_passwd "$admin_user")
 else
+	log_step "creating admin user $admin_user"
 	admin_shell=/bin/sh
 	[ -x /bin/bash ] && admin_shell=/bin/bash
 	if command -v useradd >/dev/null 2>&1; then
@@ -1180,6 +1206,7 @@ else
 	admin_home=$(user_home_from_passwd "$admin_user")
 fi
 [ -n "$admin_home" ] || admin_home="/home/$admin_user"
+log_step "writing sudoers rule for $admin_user"
 install -d -m 0755 /etc/sudoers.d
 printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$admin_user" > ` + sudoersPath + `
 chmod 0440 ` + sudoersPath + `
