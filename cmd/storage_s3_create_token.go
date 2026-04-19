@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -36,10 +37,10 @@ var storageS3CreateTokenCmd = &cobra.Command{
 		garageLayoutCapacity := garageTokenViper.GetString("garage_layout_capacity")
 
 		if !cmd.Flags().Changed("bucket") && !allowCreateBuckets {
-			bucketName = promptInput("Garage bucket name", bucketName)
+			bucketName = tui.Input("Garage bucket name", bucketName)
 		}
 		if !cmd.Flags().Changed("key-name") {
-			keyName = promptInput("Garage key name", keyName)
+			keyName = tui.Input("Garage key name", keyName)
 		}
 		if keyName == "" {
 			slog.Error("Key name is required")

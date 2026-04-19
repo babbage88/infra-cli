@@ -13,6 +13,7 @@ import (
 
 	"github.com/babbage88/infra-cli/deployer"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -229,7 +230,7 @@ func resolveDeployFlags() (DeployFlags, error) {
 		cfg.SourceGoModule = infraSSH.ExpandPath(cfg.SourceGoModule)
 	}
 	if cfg.SourceRepo != "" && cfg.SourceRef == "" {
-		cfg.SourceRef = promptOptionalInput("Git ref to build [press enter for default branch]", "")
+		cfg.SourceRef = tui.OptionalInput("Git ref to build [press enter for default branch]", "")
 	}
 
 	return cfg, nil

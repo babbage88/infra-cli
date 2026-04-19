@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -25,7 +26,7 @@ var certificatesNewAppCertCmd = &cobra.Command{
 		yearsValid := certificatesAppViper.GetInt("cert_years_valid")
 
 		if !cmd.Flags().Changed("app-name") {
-			appName = promptInput("Application certificate name", appName)
+			appName = tui.Input("Application certificate name", appName)
 		}
 		if appName == "" {
 			slog.Error("Application certificate name is required")

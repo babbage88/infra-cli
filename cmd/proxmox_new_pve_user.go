@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -39,19 +40,19 @@ func promptForMissingProxmoxNewUserValues(cfg *proxmoxNewUserOptions) error {
 		cfg.PveNode = strings.TrimSpace(rootViperCfg.GetString("ssh_remote_host"))
 	}
 	if strings.TrimSpace(cfg.PveNode) == "" {
-		cfg.PveNode = promptInputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
+		cfg.PveNode = tui.InputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
 	}
 	if strings.TrimSpace(cfg.Username) == "" {
-		cfg.Username = promptInputWithExample("New Proxmox username", "infractl", "")
+		cfg.Username = tui.InputWithExample("New Proxmox username", "infractl", "")
 	}
 	if strings.TrimSpace(cfg.Realm) == "" {
-		cfg.Realm = promptInputWithExample("Proxmox realm", "pve", "pve")
+		cfg.Realm = tui.InputWithExample("Proxmox realm", "pve", "pve")
 	}
 	if strings.TrimSpace(cfg.Comment) == "" {
-		cfg.Comment = promptOptionalInput("Proxmox user comment", "Created by infractl")
+		cfg.Comment = tui.OptionalInput("Proxmox user comment", "Created by infractl")
 	}
-	if cfg.Password == "" && promptYesNo("Set a password for this Proxmox user?", false) {
-		cfg.Password = promptPasswordWithExample("Proxmox user password", "correct-horse-battery-staple", "")
+	if cfg.Password == "" && tui.YesNo("Set a password for this Proxmox user?", false) {
+		cfg.Password = tui.PasswordWithExample("Proxmox user password", "correct-horse-battery-staple", "")
 	}
 
 	return nil

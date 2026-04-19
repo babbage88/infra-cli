@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,14 +27,14 @@ var proxmoxAuthInspectCmd = &cobra.Command{
 			cfg.PveNode = strings.TrimSpace(rootViperCfg.GetString("ssh_remote_host"))
 		}
 		if strings.TrimSpace(cfg.PveNode) == "" {
-			cfg.PveNode = promptInputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
+			cfg.PveNode = tui.InputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
 		}
 		if strings.TrimSpace(cfg.UserID) == "" {
 			if strings.TrimSpace(cfg.Username) == "" {
-				cfg.Username = promptInputWithExample("Proxmox username", "infractl", "")
+				cfg.Username = tui.InputWithExample("Proxmox username", "infractl", "")
 			}
 			if strings.TrimSpace(cfg.Realm) == "" {
-				cfg.Realm = promptInputWithExample("Proxmox realm", "pve", "pve")
+				cfg.Realm = tui.InputWithExample("Proxmox realm", "pve", "pve")
 			}
 			cfg.UserID = fmt.Sprintf("%s@%s", strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Realm))
 		}

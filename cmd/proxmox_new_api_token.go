@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -69,7 +70,7 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 		cfg.PveNode = strings.TrimSpace(rootViperCfg.GetString("ssh_remote_host"))
 	}
 	if strings.TrimSpace(cfg.PveNode) == "" {
-		cfg.PveNode = promptInputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
+		cfg.PveNode = tui.InputWithExample("Proxmox node", "pve01", rootViperCfg.GetString("ssh_remote_host"))
 	}
 	if cfg.Yolo {
 		cfg.Username = "root"
@@ -79,33 +80,33 @@ func promptForMissingProxmoxNewTokenValues(cfg *proxmoxNewTokenOptions) error {
 		cfg.Privsep = false
 		cfg.Role = ""
 		if strings.TrimSpace(cfg.TokenID) == "" {
-			cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-yolo-unsafe", "infractl-yolo-unsafe")
+			cfg.TokenID = tui.InputWithExample("Proxmox API token ID", "infractl-yolo-unsafe", "infractl-yolo-unsafe")
 		}
 		if strings.TrimSpace(cfg.Comment) == "" {
-			cfg.Comment = promptOptionalInput("Token comment", "infractlYOLOunsafe")
+			cfg.Comment = tui.OptionalInput("Token comment", "infractlYOLOunsafe")
 		}
 		return nil
 	}
 	if strings.TrimSpace(cfg.UserID) == "" {
 		if strings.TrimSpace(cfg.Username) == "" {
-			cfg.Username = promptInputWithExample("Proxmox username", "infractl", "")
+			cfg.Username = tui.InputWithExample("Proxmox username", "infractl", "")
 		}
 		if strings.TrimSpace(cfg.Realm) == "" {
-			cfg.Realm = promptInputWithExample("Proxmox realm", "pve", "pve")
+			cfg.Realm = tui.InputWithExample("Proxmox realm", "pve", "pve")
 		}
 		cfg.UserID = fmt.Sprintf("%s@%s", strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Realm))
 	}
 	if strings.TrimSpace(cfg.TokenID) == "" {
-		cfg.TokenID = promptInputWithExample("Proxmox API token ID", "infractl-cli", "infractl-cli")
+		cfg.TokenID = tui.InputWithExample("Proxmox API token ID", "infractl-cli", "infractl-cli")
 	}
 	if strings.TrimSpace(cfg.Comment) == "" {
-		cfg.Comment = promptOptionalInput("Token comment", "Created by infractl")
+		cfg.Comment = tui.OptionalInput("Token comment", "Created by infractl")
 	}
 	if strings.TrimSpace(cfg.Role) == "" {
-		cfg.Role = promptInputWithExample("Role to assign for VM/LXC management", infraCtlManagerRoleName, infraCtlManagerRoleName)
+		cfg.Role = tui.InputWithExample("Role to assign for VM/LXC management", infraCtlManagerRoleName, infraCtlManagerRoleName)
 	}
 	if strings.TrimSpace(cfg.ACLPath) == "" {
-		cfg.ACLPath = promptInputWithExample("ACL path", "/", "/")
+		cfg.ACLPath = tui.InputWithExample("ACL path", "/", "/")
 	}
 
 	return nil

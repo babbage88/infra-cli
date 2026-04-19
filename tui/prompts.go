@@ -1,0 +1,450 @@
+package tui
+
+import (
+	"bufio"
+	"fmt"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+var (
+	promptLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#2F6F73"))
+	promptHintStyle  = lipgloss.NewStyle().Faint(true)
+	promptErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A33131"))
+	promptHelpStyle  = lipgloss.NewStyle().Faint(true)
+)
+
+type inputModel struct {
+	label        string
+	defaultValue string
+	required     bool
+	password     bool
+	input        textinput.Model
+	err          string
+	done         bool
+	cancel       bool
+}
+
+func newInputModel(label, defaultValue string, required bool, password bool) inputModel {
+	input := textinput.New()
+	input.Prompt = "> "
+	input.Placeholder = defaultValue
+	input.SetValue("")
+	input.SetWidth(72)
+	if password {
+		input.EchoMode = textinput.EchoPassword
+		input.EchoCharacter = '*'
+	}
+	input.Focus()
+
+	return inputModel{
+		label:        label,
+		defaultValue: defaultValue,
+		required:     required,
+		password:     password,
+		input:        input,
+	}
+}
+
+func (m inputModel) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		case "enter":
+			value := strings.TrimSpace(m.input.Value())
+			if value == "" && m.defaultValue != "" {
+				m.done = true
+				return m, tea.Quit
+			}
+			if value == "" && m.required {
+				m.err = "Please enter a value."
+				return m, nil
+			}
+			m.done = true
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m inputModel) View() tea.View {
+	var builder strings.Builder
+	builder.WriteString(promptLabelStyle.Render(m.label))
+	if m.defaultValue != "" {
+		hint := m.defaultValue
+		if m.password {
+			hint = "press enter to use current default"
+		}
+		builder.WriteString(" " + promptHintStyle.Render("["+hint+"]"))
+	}
+	builder.WriteString("\n")
+	builder.WriteString(m.input.View())
+	if m.err != "" {
+		builder.WriteString("\n" + promptErrorStyle.Render(m.err))
+	}
+	builder.WriteString("\n")
+
+	view := tea.NewView(builder.String())
+	view.Cursor = m.input.Cursor()
+	return view
+}
+
+type confirmModel struct {
+	label      string
+	defaultYes bool
+	choice     *bool
+	cancel     bool
+	err        string
+}
+
+func (m confirmModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch strings.ToLower(msg.String()) {
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		case "enter":
+			choice := m.defaultYes
+			m.choice = &choice
+			return m, tea.Quit
+		case "y":
+			choice := true
+			m.choice = &choice
+			return m, tea.Quit
+		case "n":
+			choice := false
+			m.choice = &choice
+			return m, tea.Quit
+		default:
+			m.err = "Press y or n."
+		}
+	}
+	return m, nil
+}
+
+func (m confirmModel) View() tea.View {
+	defaultLabel := "y/N"
+	if m.defaultYes {
+		defaultLabel = "Y/n"
+	}
+
+	var builder strings.Builder
+	builder.WriteString(promptLabelStyle.Render(m.label))
+	builder.WriteString(" " + promptHintStyle.Render("["+defaultLabel+"]"))
+	builder.WriteString("\n")
+	builder.WriteString(promptHelpStyle.Render("y yes  n no  enter default"))
+	if m.err != "" {
+		builder.WriteString("\n" + promptErrorStyle.Render(m.err))
+	}
+	builder.WriteString("\n")
+	return tea.NewView(builder.String())
+}
+
+type selectItem string
+
+func (i selectItem) FilterValue() string { return string(i) }
+func (i selectItem) Title() string       { return string(i) }
+func (i selectItem) Description() string { return "" }
+
+type selectModel struct {
+	label  string
+	list   list.Model
+	value  string
+	cancel bool
+}
+
+func newSelectModel(label string, options []string, defaultValue string) selectModel {
+	items := make([]list.Item, 0, len(options))
+	defaultIndex := 0
+	for i, option := range options {
+		items = append(items, selectItem(option))
+		if defaultValue != "" && option == defaultValue {
+			defaultIndex = i
+		}
+	}
+
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = false
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("#2F6F73")).BorderLeftForeground(lipgloss.Color("#2F6F73"))
+
+	listModel := list.New(items, delegate, 80, min(14, len(options)+5))
+	listModel.Title = label
+	listModel.SetShowStatusBar(false)
+	listModel.SetShowHelp(true)
+	listModel.SetFilteringEnabled(false)
+	listModel.Select(defaultIndex)
+
+	return selectModel{label: label, list: listModel}
+}
+
+func (m selectModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.list.SetWidth(msg.Width)
+		m.list.SetHeight(min(14, msg.Height))
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancel = true
+			return m, tea.Quit
+		case "enter":
+			if item, ok := m.list.SelectedItem().(selectItem); ok {
+				m.value = string(item)
+			}
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m selectModel) View() tea.View {
+	return tea.NewView(m.list.View())
+}
+
+// IsInteractive reports whether stdin is attached to a terminal.
+func IsInteractive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+// Input prompts until a non-empty value is provided, unless a default is available.
+func Input(label, defaultValue string) string {
+	if IsInteractive() {
+		if value, ok := runInput(label, defaultValue, true, false); ok {
+			return value
+		}
+	}
+	return inputPlain(label, defaultValue, true)
+}
+
+// InputWithExample is Input with an inline example in the label.
+func InputWithExample(label, example, defaultValue string) string {
+	return Input(labelWithExample(label, example), defaultValue)
+}
+
+// OptionalInput prompts once and permits an empty value.
+func OptionalInput(label, defaultValue string) string {
+	if IsInteractive() {
+		if value, ok := runInput(label, defaultValue, false, false); ok {
+			return value
+		}
+	}
+	return inputPlain(label, defaultValue, false)
+}
+
+// Password prompts for masked input until a value is provided, unless a default is available.
+func Password(label, defaultValue string) string {
+	if IsInteractive() {
+		if value, ok := runInput(label, defaultValue, true, true); ok {
+			return value
+		}
+	}
+	return inputPlain(label, defaultValue, true)
+}
+
+// PasswordWithExample is Password with an inline example in the label.
+func PasswordWithExample(label, example, defaultValue string) string {
+	return Password(labelWithExample(label, example), defaultValue)
+}
+
+// YesNo prompts for a boolean value.
+func YesNo(label string, defaultYes bool) bool {
+	if IsInteractive() {
+		model := confirmModel{label: label, defaultYes: defaultYes}
+		result, err := tea.NewProgram(model).Run()
+		if err == nil {
+			if selected, ok := result.(confirmModel); ok && !selected.cancel && selected.choice != nil {
+				return *selected.choice
+			}
+		}
+	}
+	return yesNoPlain(label, defaultYes)
+}
+
+// SelectOption prompts for one value from options.
+func SelectOption(label string, options []string, defaultValue string) string {
+	if len(options) == 0 {
+		if defaultValue != "" {
+			return defaultValue
+		}
+		slog.Error("SelectOption called with no options")
+		os.Exit(1)
+	}
+
+	if IsInteractive() {
+		model := newSelectModel(label, options, defaultValue)
+		result, err := tea.NewProgram(model).Run()
+		if err == nil {
+			if selected, ok := result.(selectModel); ok && !selected.cancel && selected.value != "" {
+				return selected.value
+			}
+		}
+	}
+
+	return selectOptionPlain(label, options, defaultValue)
+}
+
+func runInput(label, defaultValue string, required bool, password bool) (string, bool) {
+	model := newInputModel(label, defaultValue, required, password)
+	result, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return "", false
+	}
+
+	finalModel, ok := result.(inputModel)
+	if !ok || finalModel.cancel {
+		os.Exit(1)
+	}
+
+	value := strings.TrimSpace(finalModel.input.Value())
+	if value == "" {
+		return defaultValue, true
+	}
+	return value, true
+}
+
+func inputPlain(label, defaultValue string, required bool) string {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		if defaultValue != "" {
+			fmt.Printf("%s [%s]: ", label, defaultValue)
+		} else {
+			fmt.Printf("%s: ", label)
+		}
+
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Error("Failed to read input", "error", err.Error())
+			os.Exit(1)
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" {
+			if defaultValue != "" || !required {
+				return defaultValue
+			}
+			continue
+		}
+
+		return input
+	}
+}
+
+func yesNoPlain(label string, defaultYes bool) bool {
+	reader := bufio.NewReader(os.Stdin)
+	defaultLabel := "y/N"
+	if defaultYes {
+		defaultLabel = "Y/n"
+	}
+
+	for {
+		fmt.Printf("%s [%s]: ", label, defaultLabel)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Error("Failed to read input", "error", err.Error())
+			os.Exit(1)
+		}
+
+		switch strings.ToLower(strings.TrimSpace(input)) {
+		case "":
+			return defaultYes
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		}
+	}
+}
+
+func selectOptionPlain(label string, options []string, defaultValue string) string {
+	reader := bufio.NewReader(os.Stdin)
+
+	defaultIndex := -1
+	for i, option := range options {
+		fmt.Printf("%d. %s\n", i+1, option)
+		if defaultValue != "" && option == defaultValue {
+			defaultIndex = i
+		}
+	}
+
+	for {
+		switch {
+		case defaultIndex >= 0:
+			fmt.Printf("%s [%d]: ", label, defaultIndex+1)
+		case defaultValue != "":
+			fmt.Printf("%s [%s]: ", label, defaultValue)
+		default:
+			fmt.Printf("%s: ", label)
+		}
+
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Error("Failed to read input", "error", err.Error())
+			os.Exit(1)
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" {
+			if defaultIndex >= 0 {
+				return options[defaultIndex]
+			}
+			if defaultValue != "" {
+				return defaultValue
+			}
+			continue
+		}
+
+		selection, err := strconv.Atoi(input)
+		if err == nil && selection >= 1 && selection <= len(options) {
+			return options[selection-1]
+		}
+
+		for _, option := range options {
+			if input == option {
+				return option
+			}
+		}
+
+		fmt.Printf("Please enter a number between 1 and %d or a listed value.\n", len(options))
+	}
+}
+
+func labelWithExample(label, example string) string {
+	if strings.TrimSpace(example) == "" {
+		return label
+	}
+	return fmt.Sprintf("%s (example: %s)", label, example)
+}

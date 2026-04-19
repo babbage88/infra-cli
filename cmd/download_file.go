@@ -10,8 +10,8 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/charmbracelet/bubbles/progress"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/progress"
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +46,7 @@ type model struct {
 
 func newModel() model {
 	return model{
-		progress: progress.New(progress.WithDefaultGradient()),
+		progress: progress.New(progress.WithDefaultBlend()),
 	}
 }
 
@@ -71,11 +71,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.done {
-		return "✅ Download complete!\n"
+		return tea.NewView("Download complete!\n")
 	}
-	return fmt.Sprintf("Downloading...\n%s\n", m.progress.ViewAs(m.percent))
+	return tea.NewView(fmt.Sprintf("Downloading...\n%s\n", m.progress.ViewAs(m.percent)))
 }
 
 // resolveDestination figures out the actual output filepath.

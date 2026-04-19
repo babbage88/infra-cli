@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -34,10 +35,10 @@ var databaseValkeyNewCmd = &cobra.Command{
 		}
 
 		if !cmd.Flags().Changed("username") {
-			valkeyUsername = promptInput("Valkey ACL username", valkeyUsername)
+			valkeyUsername = tui.Input("Valkey ACL username", valkeyUsername)
 		}
 		if !cmd.Flags().Changed("password") {
-			valkeyPassword = promptPassword("Valkey ACL password", valkeyPassword)
+			valkeyPassword = tui.Password("Valkey ACL password", valkeyPassword)
 		}
 
 		installer, err := deployer.NewRemoteValkeyInstallerWithSsh(

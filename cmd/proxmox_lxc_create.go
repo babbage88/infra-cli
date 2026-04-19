@@ -9,15 +9,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -299,11 +299,11 @@ func boolToProxmoxFlag(v bool) string {
 
 func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *proxmox.Auth, req *proxmox.LxcContainer, result *lxcCreateResultInfo) error {
 	if strings.TrimSpace(req.Node) == "" {
-		req.Node = promptInputWithExample("Proxmox node", "pve01", "")
+		req.Node = tui.InputWithExample("Proxmox node", "pve01", "")
 	}
 	if strings.TrimSpace(auth.Host) == "" {
 		defaultHostURL := defaultProxmoxHostURL(req.Node)
-		auth.Host = promptInputWithExample("Proxmox host URL", "https://proxmox.example.com:8006", defaultHostURL)
+		auth.Host = tui.InputWithExample("Proxmox host URL", "https://proxmox.example.com:8006", defaultHostURL)
 	}
 	if shouldPromptForProxmoxAPIAuth(cmd, vp, auth.ApiToken) {
 		auth.ApiToken = promptForProxmoxAPIAuthToken()
@@ -314,7 +314,7 @@ func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *
 		req.VmId = mustPromptLxcID(auth, req.Node, req.VmId, 9090)
 	}
 	if strings.TrimSpace(req.Hostname) == "" {
-		req.Hostname = promptInputWithExample("Container hostname", "app-staging-01", "")
+		req.Hostname = tui.InputWithExample("Container hostname", "app-staging-01", "")
 	}
 	if len(req.SshPublicKeys) == 0 {
 		req.SshPublicKeys = promptForLxcSSHPublicKeys()
@@ -339,7 +339,7 @@ func promptForLxcRootPasswordWithRandomDefault() (string, bool, error) {
 		return "", false, fmt.Errorf("generate random root password: %w", err)
 	}
 
-	password := promptPasswordWithExample("Container root password", "press enter to use a generated random password", defaultPassword)
+	password := tui.PasswordWithExample("Container root password", "press enter to use a generated random password", defaultPassword)
 	return password, password == defaultPassword, nil
 }
 
@@ -375,7 +375,7 @@ func promptForProxmoxAPIAuthToken() string {
 		} else {
 			fmt.Println("Found Proxmox API token and secret in your root config.")
 		}
-		if promptYesNo("Use the configured Proxmox API token and secret?", true) {
+		if tui.YesNo("Use the configured Proxmox API token and secret?", true) {
 			return combinedProxmoxToken(defaults)
 		}
 		return combinedProxmoxToken(promptForProxmoxTokenParts(defaults))
@@ -386,23 +386,23 @@ func promptForProxmoxAPIAuthToken() string {
 
 func promptForMissingLxcCreateTemplateAndStorage(cmd *cobra.Command, vp *viper.Viper, client *proxmox.Client, req *proxmox.LxcContainer) error {
 	if !cmd.Flags().Changed("storage") && !vp.InConfig("storage") && strings.TrimSpace(req.Storage) == "" {
-		req.Storage = promptInputWithExample("Container storage", "local-lvm", "local-lvm")
+		req.Storage = tui.InputWithExample("Container storage", "local-lvm", "local-lvm")
 	} else if strings.TrimSpace(req.Storage) == "" {
-		req.Storage = promptInputWithExample("Container storage", "local-lvm", "local-lvm")
+		req.Storage = tui.InputWithExample("Container storage", "local-lvm", "local-lvm")
 	}
 	if !cmd.Flags().Changed("rootfs-size") && !vp.InConfig("rootfs_size") && strings.TrimSpace(req.RootFsSize) == "" {
-		req.RootFsSize = promptInputWithExample("Root filesystem size in GB", "16", "9")
+		req.RootFsSize = tui.InputWithExample("Root filesystem size in GB", "16", "9")
 	} else if strings.TrimSpace(req.RootFsSize) == "" {
-		req.RootFsSize = promptInputWithExample("Root filesystem size in GB", "16", "9")
+		req.RootFsSize = tui.InputWithExample("Root filesystem size in GB", "16", "9")
 	}
 	if shouldPromptForOSTemplate(cmd, vp, req.OsTemplate) {
 		templateOptions, err := listAvailableLxcTemplates(req.Node, client)
 		if err != nil {
 			slog.Warn("failed to list LXC templates automatically; falling back to manual input", "error", err.Error())
-			req.OsTemplate = promptInputWithExample("OS template", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", req.OsTemplate)
+			req.OsTemplate = tui.InputWithExample("OS template", "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst", req.OsTemplate)
 			return nil
 		}
-		req.OsTemplate = promptSelectOption("Select OS template", templateOptions, req.OsTemplate)
+		req.OsTemplate = tui.SelectOption("Select OS template", templateOptions, req.OsTemplate)
 	}
 
 	return nil
@@ -424,7 +424,7 @@ func mustPromptInt(label string, currentValue int, fallback int) int {
 	}
 
 	for {
-		value := promptInput(label, fmt.Sprintf("%d", defaultValue))
+		value := tui.Input(label, fmt.Sprintf("%d", defaultValue))
 		var parsed int
 		if _, err := fmt.Sscanf(value, "%d", &parsed); err == nil && parsed > 0 {
 			return parsed
@@ -466,7 +466,7 @@ func mustPromptLxcID(auth *proxmox.Auth, node string, currentValue int, fallback
 	}
 
 	for {
-		value := promptInputWithExample(label, "123", fmt.Sprintf("%d", defaultValue))
+		value := tui.InputWithExample(label, "123", fmt.Sprintf("%d", defaultValue))
 		var parsed int
 		if _, err := fmt.Sscanf(value, "%d", &parsed); err == nil && parsed > 0 {
 			return parsed
@@ -531,13 +531,13 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 }
 
 func promptForLxcSSHPublicKeys() []string {
-	if !promptYesNo("Add an SSH public key for container access?", true) {
+	if !tui.YesNo("Add an SSH public key for container access?", true) {
 		return nil
 	}
 
 	options := discoverLocalPublicKeyOptions()
 	if len(options) == 0 {
-		manualKey := strings.TrimSpace(promptInputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
+		manualKey := strings.TrimSpace(tui.InputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
 		if manualKey == "" {
 			return nil
 		}
@@ -549,8 +549,8 @@ func promptForLxcSSHPublicKeys() []string {
 		return selected
 	}
 
-	if promptYesNo("Paste a public key manually?", false) {
-		manualKey := strings.TrimSpace(promptInputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
+	if tui.YesNo("Paste a public key manually?", false) {
+		manualKey := strings.TrimSpace(tui.InputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
 		if manualKey == "" {
 			return nil
 		}
@@ -586,7 +586,7 @@ func (m sshPublicKeySelectModel) Init() tea.Cmd {
 
 func (m sshPublicKeySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			m.cancel = true
@@ -616,7 +616,7 @@ func (m sshPublicKeySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m sshPublicKeySelectModel) View() string {
+func (m sshPublicKeySelectModel) View() tea.View {
 	var builder strings.Builder
 	builder.WriteString("Select SSH public keys with space, press enter when done.\n\n")
 	for i, option := range m.options {
@@ -631,14 +631,14 @@ func (m sshPublicKeySelectModel) View() string {
 		builder.WriteString(fmt.Sprintf("%s [%s] %s\n", cursor, check, option.Path))
 	}
 	builder.WriteString("\n")
-	return builder.String()
+	return tea.NewView(builder.String())
 }
 
 func promptSelectSSHPublicKeys(label string, options []infraSSH.PublicKeyOption) []string {
 	if len(options) == 0 {
 		return nil
 	}
-	if termIsInteractive() {
+	if tui.IsInteractive() {
 		model := newSSHPublicKeySelectModel(options)
 		result, err := tea.NewProgram(model).Run()
 		if err == nil {
@@ -649,14 +649,6 @@ func promptSelectSSHPublicKeys(label string, options []infraSSH.PublicKeyOption)
 	}
 
 	return promptSelectSSHPublicKeysPlain(label, options)
-}
-
-func termIsInteractive() bool {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 func selectedSSHPublicKeyContents(options []infraSSH.PublicKeyOption, selected map[int]struct{}) []string {
@@ -675,7 +667,7 @@ func promptSelectSSHPublicKeysPlain(label string, options []infraSSH.PublicKeyOp
 		fmt.Printf("%d. %s\n", i+1, option.Path)
 	}
 	for {
-		input := strings.TrimSpace(promptOptionalInput(label+" (comma-separated numbers)", "1"))
+		input := strings.TrimSpace(tui.OptionalInput(label+" (comma-separated numbers)", "1"))
 		if input == "" {
 			return nil
 		}

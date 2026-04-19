@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/babbage88/infra-cli/proxmox"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/goccy/go-yaml"
 	"github.com/spf13/viper"
 )
@@ -120,8 +121,8 @@ func rootConfiguredProxmoxTokenParts() (proxmoxTokenParts, string, bool) {
 }
 
 func promptForProxmoxTokenParts(defaults proxmoxTokenParts) proxmoxTokenParts {
-	tokenID := promptInputWithExample("Proxmox API token ID", "root@pam!infractl-cli", defaults.TokenID)
-	secret := promptPasswordWithExample("Proxmox API token secret", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", defaults.Secret)
+	tokenID := tui.InputWithExample("Proxmox API token ID", "root@pam!infractl-cli", defaults.TokenID)
+	secret := tui.PasswordWithExample("Proxmox API token secret", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", defaults.Secret)
 	return proxmoxTokenParts{
 		TokenID: strings.TrimSpace(tokenID),
 		Secret:  strings.TrimSpace(secret),

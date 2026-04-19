@@ -10,6 +10,7 @@ import (
 
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
+	"github.com/babbage88/infra-cli/tui"
 )
 
 const (
@@ -87,7 +88,7 @@ func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions)
 	}
 	if exists {
 		if !cfg.Force {
-			if !promptYesNo(fmt.Sprintf("Proxmox user %s already exists and will be deleted before recreating it. Continue?", userID), false) {
+			if !tui.YesNo(fmt.Sprintf("Proxmox user %s already exists and will be deleted before recreating it. Continue?", userID), false) {
 				fmt.Printf("Skipped recreating Proxmox user %s.\n", userID)
 				return false, nil
 			}
@@ -120,7 +121,7 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 	if exists {
 		fullTokenID := fmt.Sprintf("%s!%s", cfg.UserID, cfg.TokenID)
 		if !cfg.Force {
-			if !promptYesNo(fmt.Sprintf("API token %s already exists and will be deleted before recreating it. Continue?", fullTokenID), false) {
+			if !tui.YesNo(fmt.Sprintf("API token %s already exists and will be deleted before recreating it. Continue?", fullTokenID), false) {
 				fmt.Printf("Skipped recreating Proxmox API token %s.\n", fullTokenID)
 				return proxmoxCreatedToken{}, nil
 			}

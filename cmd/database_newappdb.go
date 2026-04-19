@@ -10,6 +10,7 @@ import (
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/deployer"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
+	"github.com/babbage88/infra-cli/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -230,7 +231,7 @@ var newAppDBCmd = &cobra.Command{
 			}
 
 			if !dbExists {
-				if promptYesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
+				if tui.YesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
 					createStmt := fmt.Sprintf(
 						`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
 						pq.QuoteIdentifier(dbname),
@@ -369,7 +370,7 @@ var newAppDBCmd = &cobra.Command{
 		}
 
 		if !dbExists {
-			if promptYesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
+			if tui.YesNo(fmt.Sprintf("Database %q does not exist. Create it now?", dbname), true) {
 				_, err = db.Exec(fmt.Sprintf(
 					`CREATE DATABASE %s WITH OWNER = postgres ENCODING = %s TEMPLATE = template0;`,
 					pq.QuoteIdentifier(dbname),
