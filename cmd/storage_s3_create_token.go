@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/infractl_services"
 	"github.com/babbage88/infra-cli/tui"
+	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -64,38 +65,25 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			garageS3Endpoint = fmt.Sprintf("http://%s:3900", sshOpts.Host)
 		}
 
-		installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-			sshOpts.Host,
-			sshOpts.User,
-			sshOpts.KeyPath,
-			sshOpts.Passphrase,
-			sshOpts.UseAgent,
-			sshOpts.Port,
-		)
-		if err != nil {
-			slog.Error(
-				"Failed to initialize SSH client",
-				"host", sshOpts.Host,
-				"user", sshOpts.User,
-				"port", sshOpts.Port,
-				"ssh_key", sshOpts.KeyPath,
-				"use_ssh_agent", sshOpts.UseAgent,
-				"error", err.Error(),
-			)
-			os.Exit(1)
-		}
-		defer installer.SshClient.Close()
-
-		req := deployer.GarageTokenRequest{
+		req := coredeploy.GarageTokenRequest{
+			SSH: coredeploy.SSHOptions{
+				Host:       sshOpts.Host,
+				User:       sshOpts.User,
+				KeyPath:    sshOpts.KeyPath,
+				Passphrase: sshOpts.Passphrase,
+				UseAgent:   sshOpts.UseAgent,
+				Port:       sshOpts.Port,
+			},
 			BucketName:         bucketName,
 			KeyName:            keyName,
-			CreateBucket:       createBucket,
-			AllowCreateBuckets: allowCreateBuckets,
-			AllowRead:          allowRead,
-			AllowWrite:         allowWrite,
-			AllowOwner:         allowOwner,
+			CreateBucket:       infractl_services.BoolPtr(createBucket),
+			AllowCreateBuckets: infractl_services.BoolPtr(allowCreateBuckets),
+			AllowRead:          infractl_services.BoolPtr(allowRead),
+			AllowWrite:         infractl_services.BoolPtr(allowWrite),
+			AllowOwner:         infractl_services.BoolPtr(allowOwner),
 			BinaryPath:         garageBinaryPath,
 			ConfigPath:         garageConfigPath,
+			S3Endpoint:         garageS3Endpoint,
 			LayoutZone:         garageLayoutZone,
 			LayoutCapacity:     garageLayoutCapacity,
 		}
@@ -109,17 +97,17 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			"allow_create_buckets", allowCreateBuckets,
 		)
 
-		creds, err := installer.CreateS3Token(req)
+		result, err := infractl_services.CreateGarageToken(req)
 		if err != nil {
 			slog.Error("Failed to create Garage S3 credentials", "error", err.Error())
 			os.Exit(1)
 		}
 
-		fmt.Printf("S3 endpoint: %s\n", garageS3Endpoint)
-		fmt.Printf("S3 bucket: %s\n", creds.BucketName)
-		fmt.Printf("S3 access key: %s\n", creds.AccessKeyID)
-		fmt.Printf("S3 secret key: %s\n", creds.SecretAccessKey)
-		fmt.Printf("mc alias set garage %s %s %s\n", garageS3Endpoint, creds.AccessKeyID, creds.SecretAccessKey)
+		fmt.Printf("S3 endpoint: %s\n", result.S3Endpoint)
+		fmt.Printf("S3 bucket: %s\n", result.BucketName)
+		fmt.Printf("S3 access key: %s\n", result.AccessKeyID)
+		fmt.Printf("S3 secret key: %s\n", result.SecretAccessKey)
+		fmt.Println(result.MCAliasSetCommand)
 	},
 }
 

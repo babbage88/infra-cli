@@ -5,7 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/infractl_services"
+	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -63,29 +64,15 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 			configPath := proxyViper.GetString("config_path")
 			localConfigPath := proxyViper.GetString("local_config_path")
 
-			installer, err := deployer.NewRemoteWebProxyInstallerWithSsh(
-				sshOpts.Host,
-				sshOpts.User,
-				sshOpts.KeyPath,
-				sshOpts.Passphrase,
-				sshOpts.UseAgent,
-				sshOpts.Port,
-			)
-			if err != nil {
-				slog.Error(
-					"Failed to initialize SSH client",
-					"host", sshOpts.Host,
-					"user", sshOpts.User,
-					"port", sshOpts.Port,
-					"ssh_key", sshOpts.KeyPath,
-					"use_ssh_agent", sshOpts.UseAgent,
-					"error", err.Error(),
-				)
-				os.Exit(1)
-			}
-			defer installer.SshClient.Close()
-
-			cfg := deployer.WebProxyInstallConfig{
+			req := coredeploy.ProxyInstallRequest{
+				SSH: coredeploy.SSHOptions{
+					Host:       sshOpts.Host,
+					User:       sshOpts.User,
+					KeyPath:    sshOpts.KeyPath,
+					Passphrase: sshOpts.Passphrase,
+					UseAgent:   sshOpts.UseAgent,
+					Port:       sshOpts.Port,
+				},
 				Name:            defaults.Name,
 				PackageName:     packageName,
 				BinaryName:      binaryName,
@@ -103,7 +90,8 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 				"local_config_path", localConfigPath,
 			)
 
-			if err := installer.EnsureInstalledAndConfigured(cfg); err != nil {
+			result, err := infractl_services.InstallProxy(req)
+			if err != nil {
 				slog.Error("Failed to configure proxy", "proxy", defaults.Name, "error", err.Error())
 				os.Exit(1)
 			}
@@ -116,13 +104,13 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 				"config_path", configPath,
 			)
 
-			fmt.Printf("%s host: %s\n", defaults.Name, sshOpts.Host)
-			fmt.Printf("%s package: %s\n", defaults.Name, packageName)
-			fmt.Printf("%s binary: %s\n", defaults.Name, binaryName)
-			fmt.Printf("%s service: %s\n", defaults.Name, serviceName)
-			fmt.Printf("%s config: %s\n", defaults.Name, configPath)
-			if localConfigPath != "" {
-				fmt.Printf("%s local config: %s\n", defaults.Name, localConfigPath)
+			fmt.Printf("%s host: %s\n", result.Name, result.Host)
+			fmt.Printf("%s package: %s\n", result.Name, result.PackageName)
+			fmt.Printf("%s binary: %s\n", result.Name, result.BinaryName)
+			fmt.Printf("%s service: %s\n", result.Name, result.ServiceName)
+			fmt.Printf("%s config: %s\n", result.Name, result.ConfigPath)
+			if result.LocalConfigPath != "" {
+				fmt.Printf("%s local config: %s\n", result.Name, result.LocalConfigPath)
 			}
 		},
 	}

@@ -1,6 +1,6 @@
 module github.com/babbage88/infra-cli
 
-go 1.26.1
+go 1.26.2
 
 require (
 	charm.land/bubbles/v2 v2.1.0
@@ -9,6 +9,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/babbage88/go-infra v0.0.0
 	github.com/babbage88/goph/v2 v2.0.1
+	github.com/babbage88/infra-core v0.0.0
 	github.com/babbage88/tint v0.0.1
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/go-git/go-git/v5 v5.16.2
@@ -20,6 +21,8 @@ require (
 )
 
 replace github.com/babbage88/go-infra => ../go-infra
+
+replace github.com/babbage88/infra-core => ../infra-core
 
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
