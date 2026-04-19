@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -240,6 +241,65 @@ func (m confirmModel) View() tea.View {
 	return tea.NewView(builder.String())
 }
 
+type textareaModel struct {
+	label  string
+	input  textarea.Model
+	cancel bool
+}
+
+func newTextareaModel(label, defaultValue string) textareaModel {
+	input := textarea.New()
+	input.Prompt = "  "
+	input.ShowLineNumbers = true
+	input.SetWidth(88)
+	input.SetHeight(14)
+	input.SetValue(defaultValue)
+	input.Focus()
+
+	return textareaModel{
+		label: label,
+		input: input,
+	}
+}
+
+func (m textareaModel) Init() tea.Cmd {
+	return m.input.Focus()
+}
+
+func (m textareaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.input.SetWidth(min(100, max(48, msg.Width-6)))
+		m.input.SetHeight(min(18, max(8, msg.Height-8)))
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		case "ctrl+s":
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m textareaModel) View() tea.View {
+	var builder strings.Builder
+	builder.WriteString(promptLabelStyle.Render(m.label))
+	builder.WriteString("\n")
+	builder.WriteString(m.input.View())
+	builder.WriteString("\n")
+	builder.WriteString(promptHelpStyle.Render("ctrl+s save  esc cancel"))
+	builder.WriteString("\n")
+
+	view := tea.NewView(builder.String())
+	view.Cursor = m.input.Cursor()
+	return view
+}
+
 type selectItem string
 
 func (i selectItem) FilterValue() string { return string(i) }
@@ -394,6 +454,16 @@ func PasswordWithExample(label, example, defaultValue string) string {
 	return Password(labelWithExample(label, example), defaultValue)
 }
 
+// TextArea prompts for a multi-line value.
+func TextArea(label, defaultValue string) string {
+	if IsInteractive() {
+		if value, ok := runTextArea(label, defaultValue); ok {
+			return value
+		}
+	}
+	return textAreaPlain(label, defaultValue)
+}
+
 // YesNo prompts for a boolean value.
 func YesNo(label string, defaultYes bool) bool {
 	if IsInteractive() {
@@ -450,6 +520,21 @@ func runInput(label, defaultValue string, required bool, password bool) (string,
 	return value, true
 }
 
+func runTextArea(label, defaultValue string) (string, bool) {
+	model := newTextareaModel(label, defaultValue)
+	result, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return "", false
+	}
+
+	finalModel, ok := result.(textareaModel)
+	if !ok || finalModel.cancel {
+		os.Exit(1)
+	}
+
+	return finalModel.input.Value(), true
+}
+
 func inputPlain(label, defaultValue string, required bool) string {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -476,6 +561,28 @@ func inputPlain(label, defaultValue string, required bool) string {
 
 		return input
 	}
+}
+
+func textAreaPlain(label, defaultValue string) string {
+	fmt.Println(label)
+	fmt.Println("Enter script content, then send EOF when done.")
+	if defaultValue != "" {
+		fmt.Println(defaultValue)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		slog.Error("Failed to read input", "error", err.Error())
+		os.Exit(1)
+	}
+	if len(lines) == 0 {
+		return defaultValue
+	}
+	return strings.Join(lines, "\n")
 }
 
 func yesNoPlain(label string, defaultYes bool) bool {

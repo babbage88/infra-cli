@@ -96,6 +96,11 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		if err := promptForMissingLxcCreateTemplateAndStorage(cmd, localViper, client, &newLxcRequest); err != nil {
 			return err
 		}
+		runInitScript := lxcCreateBoolValue(cmd, localViper, "run_init_script")
+		customInitScript := lxcCreateStringValue(cmd, localViper, "custom_script")
+		if runInitScript && strings.TrimSpace(customInitScript) == "" {
+			customInitScript = promptForLxcCustomInitScript()
+		}
 
 		fmt.Println("Creating LXC container...")
 		if err := client.CreateLXCContainer(context.Background(), newLxcRequest.Node, &newLxcRequest); err != nil {
@@ -122,6 +127,11 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			}
 			resultInfo.IPv4Address = ipAddr
 		}
+		if runInitScript {
+			if err := runLxcCustomInitScript(&newLxcRequest, customInitScript); err != nil {
+				return err
+			}
+		}
 		if localViper.GetBool("verify") {
 			fmt.Println("Verifying container boot and SSH reachability...")
 			verifyUser := strings.TrimSpace(localViper.GetString("verify_ssh_user"))
@@ -142,6 +152,68 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		printLxcCreateConnectionInfo(&newLxcRequest, resultInfo)
 		return nil
 	},
+}
+
+const defaultLxcCustomInitScript = "#!/usr/bin/env sh\n"
+
+func promptForLxcCustomInitScript() string {
+	return tui.TextArea("Custom init script", defaultLxcCustomInitScript)
+}
+
+func runLxcCustomInitScript(req *proxmox.LxcContainer, script string) error {
+	if req == nil {
+		return fmt.Errorf("LXC request is required")
+	}
+	if req.VmId <= 0 {
+		return fmt.Errorf("container VM ID is required for --run-init-script")
+	}
+	if strings.TrimSpace(req.Node) == "" {
+		return fmt.Errorf("Proxmox node is required for --run-init-script")
+	}
+	if strings.TrimSpace(script) == "" {
+		return fmt.Errorf("--run-init-script requires --custom-script or a prompted script")
+	}
+
+	sshClient, err := initializeProxmoxAdminSSH(req.Node)
+	if err != nil {
+		return fmt.Errorf("initialize proxmox SSH for --run-init-script: %w", err)
+	}
+	defer sshClient.Close()
+
+	if req.Start != "1" {
+		fmt.Printf("Starting container %d so the init script can run...\n", req.VmId)
+		if _, err := proxmox.RunRemoteQuotedCommandWithLog(sshClient, nil, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
+			return fmt.Errorf("start container %d for --run-init-script: %w", req.VmId, err)
+		}
+	}
+	if err := proxmox.WaitForLxcRunningOverSSH(sshClient, req.VmId, 2*time.Minute); err != nil {
+		return fmt.Errorf("wait for container %d to run before --run-init-script: %w", req.VmId, err)
+	}
+
+	fmt.Println("Running custom init script...")
+	out, err := proxmox.RunPctExecShellScript(sshClient, req.VmId, lxcCustomInitScriptRunner(script))
+	if len(strings.TrimSpace(string(out))) > 0 {
+		fmt.Print(string(out))
+		if !strings.HasSuffix(string(out), "\n") {
+			fmt.Println()
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("run custom init script: %w", err)
+	}
+	fmt.Println("Custom init script completed successfully.")
+	return nil
+}
+
+func lxcCustomInitScriptRunner(script string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(script))
+	return `set -eu
+tmp="$(mktemp /tmp/infractl-init-script.XXXXXX)"
+cleanup() { rm -f "$tmp"; }
+trap cleanup EXIT
+printf %s ` + shellQuote(encoded) + ` | base64 -d > "$tmp"
+chmod 700 "$tmp"
+"$tmp"`
 }
 
 func printLxcCreateConnectionInfo(req *proxmox.LxcContainer, info lxcCreateResultInfo) {
@@ -1096,6 +1168,8 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().Bool("add-admin-user", false, "Create a passwordless sudo admin user inside the container")
 	proxmoxLxcCreateCmd.Flags().String("admin-username", currentUserName(), "Admin username to create when --add-admin-user is set")
 	proxmoxLxcCreateCmd.Flags().Int("admin-uid", 1000, "Admin user UID to create when --add-admin-user is set")
+	proxmoxLxcCreateCmd.Flags().Bool("run-init-script", false, "Run a custom init script inside the container after SSH/admin setup")
+	proxmoxLxcCreateCmd.Flags().String("custom-script", "", "Custom init script content to run when --run-init-script is set")
 	proxmoxLxcCreateCmd.Flags().Bool("start", true, "Start after create")
 	proxmoxLxcCreateCmd.Flags().Bool("console", true, "Attach console")
 }
