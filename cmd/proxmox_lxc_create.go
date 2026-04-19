@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
@@ -30,6 +32,12 @@ var (
 type lxcCreateResultInfo struct {
 	GeneratedRootPassword string
 	IPv4Address           string
+}
+
+type lxcSSHForceOptions struct {
+	AddAdminUser bool
+	AdminUser    string
+	AdminUID     int
 }
 
 var proxmoxLxcCreateCmd = &cobra.Command{
@@ -101,9 +109,18 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			return fmt.Errorf("create container: %w", err)
 		}
 		fmt.Println("Container creation request sent successfully.")
-		if lxcCreateBoolValue(cmd, localViper, "ssh_force") {
+		forceSSH := lxcCreateBoolValue(cmd, localViper, "ssh_force")
+		adminOptions := lxcSSHForceOptions{
+			AddAdminUser: lxcCreateBoolValue(cmd, localViper, "add_admin_user"),
+			AdminUser:    strings.TrimSpace(lxcCreateStringValue(cmd, localViper, "admin_username")),
+			AdminUID:     lxcCreateIntValue(cmd, localViper, "admin_uid"),
+		}
+		if adminOptions.AddAdminUser {
+			forceSSH = true
+		}
+		if forceSSH {
 			fmt.Println("Forcing container SSH readiness...")
-			ipAddr, err := forceLxcSSHReadiness(&newLxcRequest)
+			ipAddr, err := forceLxcSSHReadiness(&newLxcRequest, adminOptions)
 			if err != nil {
 				return err
 			}
@@ -527,10 +544,12 @@ func promptForLxcSSHPublicKeys() []string {
 		return []string{manualKey}
 	}
 
-	selectionOptions := append([]string{}, options...)
-	selectionOptions = append(selectionOptions, "Paste a public key manually")
-	selection := promptSelectOption("Select an SSH public key to authorize", selectionOptions, options[0])
-	if selection == "Paste a public key manually" {
+	selected := promptSelectSSHPublicKeys("Select SSH public keys to authorize", options)
+	if len(selected) > 0 {
+		return selected
+	}
+
+	if promptYesNo("Paste a public key manually?", false) {
 		manualKey := strings.TrimSpace(promptInputWithExample("SSH public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com", ""))
 		if manualKey == "" {
 			return nil
@@ -538,14 +557,145 @@ func promptForLxcSSHPublicKeys() []string {
 		return []string{manualKey}
 	}
 
-	return []string{selection}
+	return nil
 }
 
-func discoverLocalPublicKeyOptions() []string {
-	return infraSSH.DiscoverPublicKeyContents(rootViperCfg.GetString("ssh_key"))
+func discoverLocalPublicKeyOptions() []infraSSH.PublicKeyOption {
+	return infraSSH.DiscoverPublicKeyOptions(rootViperCfg.GetString("ssh_key"))
 }
 
-func forceLxcSSHReadiness(req *proxmox.LxcContainer) (string, error) {
+type sshPublicKeySelectModel struct {
+	options  []infraSSH.PublicKeyOption
+	cursor   int
+	selected map[int]struct{}
+	done     bool
+	cancel   bool
+}
+
+func newSSHPublicKeySelectModel(options []infraSSH.PublicKeyOption) sshPublicKeySelectModel {
+	selected := make(map[int]struct{})
+	if len(options) > 0 {
+		selected[0] = struct{}{}
+	}
+	return sshPublicKeySelectModel{options: options, selected: selected}
+}
+
+func (m sshPublicKeySelectModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m sshPublicKeySelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		case "q":
+			m.cancel = true
+			return m, tea.Quit
+		case "enter":
+			m.done = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.options)-1 {
+				m.cursor++
+			}
+		case " ":
+			if _, ok := m.selected[m.cursor]; ok {
+				delete(m.selected, m.cursor)
+			} else {
+				m.selected[m.cursor] = struct{}{}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m sshPublicKeySelectModel) View() string {
+	var builder strings.Builder
+	builder.WriteString("Select SSH public keys with space, press enter when done.\n\n")
+	for i, option := range m.options {
+		cursor := " "
+		if i == m.cursor {
+			cursor = ">"
+		}
+		check := " "
+		if _, ok := m.selected[i]; ok {
+			check = "x"
+		}
+		builder.WriteString(fmt.Sprintf("%s [%s] %s\n", cursor, check, option.Path))
+	}
+	builder.WriteString("\n")
+	return builder.String()
+}
+
+func promptSelectSSHPublicKeys(label string, options []infraSSH.PublicKeyOption) []string {
+	if len(options) == 0 {
+		return nil
+	}
+	if termIsInteractive() {
+		model := newSSHPublicKeySelectModel(options)
+		result, err := tea.NewProgram(model).Run()
+		if err == nil {
+			if selectedModel, ok := result.(sshPublicKeySelectModel); ok && !selectedModel.cancel {
+				return selectedSSHPublicKeyContents(options, selectedModel.selected)
+			}
+		}
+	}
+
+	return promptSelectSSHPublicKeysPlain(label, options)
+}
+
+func termIsInteractive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+func selectedSSHPublicKeyContents(options []infraSSH.PublicKeyOption, selected map[int]struct{}) []string {
+	keys := make([]string, 0, len(selected))
+	for i, option := range options {
+		if _, ok := selected[i]; !ok {
+			continue
+		}
+		keys = append(keys, option.Content)
+	}
+	return keys
+}
+
+func promptSelectSSHPublicKeysPlain(label string, options []infraSSH.PublicKeyOption) []string {
+	for i, option := range options {
+		fmt.Printf("%d. %s\n", i+1, option.Path)
+	}
+	for {
+		input := strings.TrimSpace(promptOptionalInput(label+" (comma-separated numbers)", "1"))
+		if input == "" {
+			return nil
+		}
+		selected := make(map[int]struct{})
+		for _, field := range strings.Split(input, ",") {
+			selection, err := strconv.Atoi(strings.TrimSpace(field))
+			if err != nil || selection < 1 || selection > len(options) {
+				selected = nil
+				break
+			}
+			selected[selection-1] = struct{}{}
+		}
+		if len(selected) > 0 {
+			return selectedSSHPublicKeyContents(options, selected)
+		}
+		fmt.Printf("Please enter one or more numbers between 1 and %d, separated by commas.\n", len(options))
+	}
+}
+
+func forceLxcSSHReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("LXC request is required")
 	}
@@ -588,10 +738,13 @@ func forceLxcSSHReadiness(req *proxmox.LxcContainer) (string, error) {
 	}
 	fmt.Printf("Container %d reported IPv4 address %s.\n", req.VmId, ipAddr)
 
-	if err := ensureLxcSSHServerAndRootKeysOverSSH(sshClient, req.VmId, req.SshPublicKeys); err != nil {
+	if err := ensureLxcSSHServerAndUsersOverSSH(sshClient, req.VmId, req.SshPublicKeys, options); err != nil {
 		return "", err
 	}
 	fmt.Printf("Container %d SSH server is installed, enabled, and has root authorized_keys.\n", req.VmId)
+	if options.AddAdminUser {
+		fmt.Printf("Container %d admin user %s is ready.\n", req.VmId, options.AdminUser)
+	}
 
 	return ipAddr, nil
 }
