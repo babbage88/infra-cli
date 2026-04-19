@@ -732,7 +732,7 @@ func newLxcSSHForceViewportModel() lxcSSHForceViewportModel {
 	vp.FillHeight = true
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#343A43")).
+		BorderForeground(lipgloss.Color("#18D7FF")).
 		Padding(0, 1)
 
 	model := lxcSSHForceViewportModel{viewport: vp, contentWidth: 100}
@@ -766,11 +766,6 @@ func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		m.ipAddr = msg.ipAddr
 		m.err = msg.err
-		if msg.err != nil {
-			m.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Label: "failed", Body: msg.err.Error()})
-		} else {
-			m.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Label: "done", Body: "SSH readiness completed."})
-		}
 	}
 
 	var cmd tea.Cmd
@@ -790,12 +785,20 @@ func (m lxcSSHForceViewportModel) View() tea.View {
 	header := lxcSSHForceTitleStyle.Render("LXC SSH force setup") + " " + status + "\n"
 	statusPanel := m.statusPanel()
 	footer := lxcSSHForceHelpStyle.Render("Scroll: up/down, pgup/pgdn")
+
+	donePrompt := ""
 	if m.done {
-		footer += lxcSSHForceHelpStyle.Render("  Close: enter/q/esc")
+		doneText := "SSH readiness completed successfully. Press enter, q, or esc to continue."
+		doneStyle := lxcSSHForceDonePromptStyle
+		if m.err != nil {
+			doneText = "SSH readiness failed: " + m.err.Error() + " Press enter, q, or esc to continue."
+			doneStyle = lxcSSHForceErrorPromptStyle
+		}
+		donePrompt = "\n" + doneStyle.Render(doneText)
 	}
 
 	outputTitle := lxcSSHForceSectionTitleStyle.Render("stdout / stderr")
-	return tea.NewView(header + statusPanel + "\n" + outputTitle + "\n" + m.viewport.View() + "\n" + footer)
+	return tea.NewView(header + statusPanel + "\n" + outputTitle + "\n" + m.viewport.View() + "\n" + footer + donePrompt)
 }
 
 func (m *lxcSSHForceViewportModel) appendEntry(entry lxcSSHForceLogEntry) {
@@ -845,14 +848,16 @@ var (
 	lxcSSHForceSectionTitleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#68717C")).PaddingLeft(1)
 	lxcSSHForceTitleStyle         = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8A929E"))
 	lxcSSHForceMutedStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#5D646F"))
-	lxcSSHForceHelpStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#4E5560"))
+	lxcSSHForceHelpStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F2F6FF"))
 	lxcSSHForceSuccessStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6F9276"))
 	lxcSSHForceErrorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#AA7070"))
 	lxcSSHForceStatusStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C747D"))
 	lxcSSHForceStatusLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7F8D8A"))
 	lxcSSHForceCommandBlockStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#707883"))
 	lxcSSHForceCommandHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#848B96"))
-	lxcSSHForceStatusPanelStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#343A43")).Padding(0, 1)
+	lxcSSHForceStatusPanelStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#18D7FF")).Padding(0, 1)
+	lxcSSHForceDonePromptStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#B8FFE8"))
+	lxcSSHForceErrorPromptStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFC2C2"))
 )
 
 func renderLxcSSHForceCommandEntries(entries []lxcSSHForceLogEntry, width int) string {
