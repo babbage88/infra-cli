@@ -1,4 +1,4 @@
-package dbhelper
+package infractl_webapi
 
 import (
 	"archive/zip"

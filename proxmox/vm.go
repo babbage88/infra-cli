@@ -14,6 +14,15 @@ import (
 	"github.com/babbage88/infra-cli/internal/pretty"
 )
 
+type QemuCloneRequest struct {
+	NewID       int
+	Name        string
+	TargetNode  string
+	Storage     string
+	Description string
+	FullClone   bool
+}
+
 // CreateVM creates a new VM on a given Proxmox node using VMConfigTyped.
 // vmid must be a unique unused VM ID.
 func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *ProxmoxQemuVmConfig) error {
@@ -34,6 +43,45 @@ func (c *Client) CreateVM(ctx context.Context, node string, vmid int, cfg *Proxm
 
 	// The Proxmox API expects POST for creating a VM.
 	return c.do(ctx, "POST", path, strings.NewReader(params.Encode()), headers, true, nil)
+}
+
+func (c *Client) CloneVM(ctx context.Context, node string, templateVMID int, req QemuCloneRequest) error {
+	if strings.TrimSpace(node) == "" {
+		return fmt.Errorf("node is required")
+	}
+	if templateVMID <= 0 {
+		return fmt.Errorf("invalid template VMID: %d", templateVMID)
+	}
+	if req.NewID <= 0 {
+		return fmt.Errorf("invalid new VMID: %d", req.NewID)
+	}
+
+	params := url.Values{}
+	params.Set("newid", fmt.Sprintf("%d", req.NewID))
+	if req.Name != "" {
+		params.Set("name", req.Name)
+	}
+	if req.TargetNode != "" && req.TargetNode != node {
+		params.Set("target", req.TargetNode)
+	}
+	if req.Storage != "" {
+		params.Set("storage", req.Storage)
+	}
+	if req.Description != "" {
+		params.Set("description", req.Description)
+	}
+	if req.FullClone {
+		params.Set("full", "1")
+	} else {
+		params.Set("full", "0")
+	}
+
+	path := fmt.Sprintf("%s/%s/qemu/%d/clone", apiNodesPath, url.PathEscape(node), templateVMID)
+	headers := map[string]string{
+		"Content-Type": "application/x-www-form-urlencoded",
+	}
+
+	return c.do(ctx, http.MethodPost, path, strings.NewReader(params.Encode()), headers, true, nil)
 }
 
 // ToParams converts VMConfigTyped to API form parameters.
@@ -105,6 +153,18 @@ func (c *Client) StartVM(ctx context.Context, node string, vmid int) (map[string
 	}
 
 	return resp, nil
+}
+
+func (c *Client) TemplateVM(ctx context.Context, node string, vmid int) error {
+	if strings.TrimSpace(node) == "" {
+		return fmt.Errorf("node is required")
+	}
+	if vmid <= 0 {
+		return fmt.Errorf("invalid VMID: %d", vmid)
+	}
+
+	path := fmt.Sprintf("%s/%s/qemu/%d/template", apiNodesPath, url.PathEscape(node), vmid)
+	return c.do(ctx, http.MethodPost, path, nil, nil, true, nil)
 }
 
 func (c *Client) StopVM(ctx context.Context, node string, vmid int) (map[string]any, error) {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/babbage88/infra-cli/dbhelper"
+	webapi "github.com/babbage88/infra-cli/infractl_webapi"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/spf13/cobra"
@@ -35,9 +35,9 @@ func init() {
 func startApiServer(listenAddr *string) error {
 	mux := http.NewServeMux()
 	slog.Info("Starting Db Helper UI API Server", slog.String("ListedAddr", *listenAddr))
-	mux.Handle("/generate-pg-setup-scripts", http.HandlerFunc(dbhelper.GenerateDbUserScriptsHandler()))
+	mux.Handle("/generate-pg-setup-scripts", http.HandlerFunc(webapi.GenerateDbUserScriptsHandler()))
 	//mux.Handle("/api/download-pg-scripts", http.HandlerFunc(dbhelper.DownloadDbUserScriptsHandler()))
-	mux.HandleFunc("/download-pg-scripts", dbhelper.DownloadDbUserScriptsHandler())
+	mux.HandleFunc("/download-pg-scripts", webapi.DownloadDbUserScriptsHandler())
 	mux.Handle("/metrics", promhttp.Handler())
 	return http.ListenAndServe(*listenAddr, requestLoggingMiddleware(handleCORSOptions(mux)))
 
