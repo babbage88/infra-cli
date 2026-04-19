@@ -649,6 +649,9 @@ while IFS= read -r key; do
 done <<'INFRACTL_SSH_KEYS'
 ` + strings.Join(keys, "\n") + `
 INFRACTL_SSH_KEYS
+if command -v ssh-keygen >/dev/null 2>&1; then
+	ssh-keygen -A
+fi
 if command -v systemctl >/dev/null 2>&1; then
 	systemctl enable --now sshd >/dev/null 2>&1 || systemctl enable --now ssh >/dev/null 2>&1 || true
 fi
