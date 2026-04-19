@@ -51,6 +51,8 @@ func CreateLXCContainer(host, token, node string, params map[string]string) erro
 			cfg.Console = values
 		case "unprivileged":
 			cfg.Unprivileged = values
+		case "features":
+			cfg.Features = values
 		case "ssh-public-keys":
 			cfg.SshPublicKeys = strings.Split(values, "\n")
 		case "rootfs":

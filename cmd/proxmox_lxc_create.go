@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +26,11 @@ var (
 	lxcVerifySSHUserFlag string
 	lxcVerifySSHPortFlag uint
 )
+
+type lxcCreateResultInfo struct {
+	GeneratedRootPassword string
+	IPv4Address           string
+}
 
 var proxmoxLxcCreateCmd = &cobra.Command{
 	Use:     "create",
@@ -47,24 +57,30 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			Hostname:      localViper.GetString("lxc_hostname"),
 			Node:          localViper.GetString("pve_node"),
 			Password:      localViper.GetString("lxc_password"),
-			OsTemplate:    localViper.GetString("ostemplate"),
-			Storage:       localViper.GetString("storage"),
-			RootFsSize:    localViper.GetString("rootfs_size"),
-			Memory:        localViper.GetInt("memory"),
-			Swap:          localViper.GetInt("swap"),
-			Cores:         localViper.GetInt("cores"),
-			CpuLimit:      localViper.GetInt("cpu_limit"),
-			CpuUnits:      localViper.GetInt("cpu_units"),
-			Net0:          localViper.GetString("net0"),
+			OsTemplate:    lxcCreateStringValue(cmd, localViper, "ostemplate"),
+			Storage:       lxcCreateStringValue(cmd, localViper, "storage"),
+			RootFsSize:    lxcCreateStringValue(cmd, localViper, "rootfs_size"),
+			Memory:        lxcCreateIntValue(cmd, localViper, "memory"),
+			Swap:          lxcCreateIntValue(cmd, localViper, "swap"),
+			Cores:         lxcCreateIntValue(cmd, localViper, "cores"),
+			CpuLimit:      lxcCreateIntValue(cmd, localViper, "cpu_limit"),
+			CpuUnits:      lxcCreateIntValue(cmd, localViper, "cpu_units"),
+			Net0:          lxcCreateStringValue(cmd, localViper, "net0"),
 			Arch:          localViper.GetString("arch"),
 			Cmode:         localViper.GetString("cmode"),
+			Features:      localViper.GetString("features"),
 			SshPublicKeys: localViper.GetStringSlice("ssh_public_keys"),
 		}
-		newLxcRequest.Start = boolToProxmoxFlag(localViper.GetBool("start"))
-		newLxcRequest.Console = boolToProxmoxFlag(localViper.GetBool("console"))
-		newLxcRequest.Unprivileged = boolToProxmoxFlag(localViper.GetBool("unprivileged"))
+		nestingEnabled := resolveLxcCreateNesting(cmd, localViper)
+		if nestingEnabled {
+			newLxcRequest.Features = appendProxmoxFeature(newLxcRequest.Features, "nesting=1")
+		}
+		newLxcRequest.Start = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "start"))
+		newLxcRequest.Console = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "console"))
+		newLxcRequest.Unprivileged = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "unprivileged"))
 
-		if err := promptForMissingLxcCreateBasics(cmd, localViper, &proxmoxLxcAuth, &newLxcRequest); err != nil {
+		resultInfo := lxcCreateResultInfo{}
+		if err := promptForMissingLxcCreateBasics(cmd, localViper, &proxmoxLxcAuth, &newLxcRequest, &resultInfo); err != nil {
 			return err
 		}
 
@@ -78,9 +94,21 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 
 		fmt.Println("Creating LXC container...")
 		if err := client.CreateLXCContainer(context.Background(), newLxcRequest.Node, &newLxcRequest); err != nil {
+			var apiErr *proxmox.APIError
+			if nestingEnabled && errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
+				return fmt.Errorf("create container with nesting enabled: %w. Proxmox only allows LXC nesting to be set for unprivileged containers by a principal with VM.Allocate on the container path; privileged containers or other feature flags may require root@pam/SuperUser", err)
+			}
 			return fmt.Errorf("create container: %w", err)
 		}
 		fmt.Println("Container creation request sent successfully.")
+		if lxcCreateBoolValue(cmd, localViper, "ssh_force") {
+			fmt.Println("Forcing container SSH readiness...")
+			ipAddr, err := forceLxcSSHReadiness(&newLxcRequest)
+			if err != nil {
+				return err
+			}
+			resultInfo.IPv4Address = ipAddr
+		}
 		if localViper.GetBool("verify") {
 			fmt.Println("Verifying container boot and SSH reachability...")
 			verifyUser := strings.TrimSpace(localViper.GetString("verify_ssh_user"))
@@ -98,8 +126,29 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 				return err
 			}
 		}
+		printLxcCreateConnectionInfo(&newLxcRequest, resultInfo)
 		return nil
 	},
+}
+
+func printLxcCreateConnectionInfo(req *proxmox.LxcContainer, info lxcCreateResultInfo) {
+	if strings.TrimSpace(info.GeneratedRootPassword) == "" {
+		return
+	}
+
+	fmt.Println("Container connection information:")
+	if req != nil {
+		if req.VmId > 0 {
+			fmt.Printf("  VMID: %d\n", req.VmId)
+		}
+		if strings.TrimSpace(req.Hostname) != "" {
+			fmt.Printf("  Hostname: %s\n", req.Hostname)
+		}
+	}
+	if strings.TrimSpace(info.IPv4Address) != "" {
+		fmt.Printf("  SSH: ssh root@%s\n", info.IPv4Address)
+	}
+	fmt.Printf("  Root password: %s\n", info.GeneratedRootPassword)
 }
 
 func applyRootProxmoxDefaults(vp *viper.Viper) {
@@ -118,6 +167,112 @@ func applyRootProxmoxDefaults(vp *viper.Viper) {
 	}
 }
 
+func resolveLxcCreateNesting(cmd *cobra.Command, vp *viper.Viper) bool {
+	if cmd.Flags().Changed("nesting") || vp.InConfig("nesting") {
+		return vp.GetBool("nesting")
+	}
+	if vp.InConfig("proxmox_lxc_defaults_nesting") {
+		return vp.GetBool("proxmox_lxc_defaults_nesting")
+	}
+	if rootViperCfg.IsSet("proxmox_lxc_defaults_nesting") {
+		return rootViperCfg.GetBool("proxmox_lxc_defaults_nesting")
+	}
+
+	return false
+}
+
+func lxcCreateBoolValue(cmd *cobra.Command, vp *viper.Viper, key string) bool {
+	flagName := strings.ReplaceAll(key, "_", "-")
+	if cmd.Flags().Changed(flagName) || vp.InConfig(key) {
+		return vp.GetBool(key)
+	}
+
+	defaultKey := "proxmox_lxc_defaults_" + key
+	if vp.InConfig(defaultKey) {
+		return vp.GetBool(defaultKey)
+	}
+	if rootViperCfg.IsSet(defaultKey) {
+		return rootViperCfg.GetBool(defaultKey)
+	}
+
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil {
+		return false
+	}
+
+	value, err := strconv.ParseBool(flag.DefValue)
+	if err != nil {
+		return false
+	}
+	return value
+}
+
+func lxcCreateIntValue(cmd *cobra.Command, vp *viper.Viper, key string) int {
+	flagName := strings.ReplaceAll(key, "_", "-")
+	if cmd.Flags().Changed(flagName) || vp.InConfig(key) {
+		return vp.GetInt(key)
+	}
+
+	defaultKey := "proxmox_lxc_defaults_" + key
+	if vp.InConfig(defaultKey) {
+		return vp.GetInt(defaultKey)
+	}
+	if rootViperCfg.IsSet(defaultKey) {
+		return rootViperCfg.GetInt(defaultKey)
+	}
+
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil {
+		return 0
+	}
+
+	value, err := strconv.Atoi(flag.DefValue)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func lxcCreateStringValue(cmd *cobra.Command, vp *viper.Viper, key string) string {
+	flagName := strings.ReplaceAll(key, "_", "-")
+	if cmd.Flags().Changed(flagName) || vp.InConfig(key) {
+		return vp.GetString(key)
+	}
+
+	defaultKey := "proxmox_lxc_defaults_" + key
+	if vp.InConfig(defaultKey) {
+		return vp.GetString(defaultKey)
+	}
+	if rootViperCfg.IsSet(defaultKey) {
+		return rootViperCfg.GetString(defaultKey)
+	}
+
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil {
+		return ""
+	}
+	return flag.DefValue
+}
+
+func appendProxmoxFeature(features string, feature string) string {
+	features = strings.TrimSpace(features)
+	feature = strings.TrimSpace(feature)
+	if feature == "" {
+		return features
+	}
+	if features == "" {
+		return feature
+	}
+
+	for _, existing := range strings.Split(features, ",") {
+		if strings.TrimSpace(existing) == feature {
+			return features
+		}
+	}
+
+	return features + "," + feature
+}
+
 func boolToProxmoxFlag(v bool) string {
 	if v {
 		return "1"
@@ -125,7 +280,7 @@ func boolToProxmoxFlag(v bool) string {
 	return "0"
 }
 
-func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *proxmox.Auth, req *proxmox.LxcContainer) error {
+func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *proxmox.Auth, req *proxmox.LxcContainer, result *lxcCreateResultInfo) error {
 	if strings.TrimSpace(req.Node) == "" {
 		req.Node = promptInputWithExample("Proxmox node", "pve01", "")
 	}
@@ -147,11 +302,36 @@ func promptForMissingLxcCreateBasics(cmd *cobra.Command, vp *viper.Viper, auth *
 	if len(req.SshPublicKeys) == 0 {
 		req.SshPublicKeys = promptForLxcSSHPublicKeys()
 	}
-	if len(req.SshPublicKeys) == 0 && strings.TrimSpace(req.Password) == "" {
-		req.Password = promptPasswordWithExample("Container root password", "correct-horse-battery-staple", "")
+	if strings.TrimSpace(req.Password) == "" {
+		password, usedGenerated, err := promptForLxcRootPasswordWithRandomDefault()
+		if err != nil {
+			return err
+		}
+		req.Password = password
+		if usedGenerated && result != nil {
+			result.GeneratedRootPassword = password
+		}
 	}
 
 	return nil
+}
+
+func promptForLxcRootPasswordWithRandomDefault() (string, bool, error) {
+	defaultPassword, err := randomURLPassword(24)
+	if err != nil {
+		return "", false, fmt.Errorf("generate random root password: %w", err)
+	}
+
+	password := promptPasswordWithExample("Container root password", "press enter to use a generated random password", defaultPassword)
+	return password, password == defaultPassword, nil
+}
+
+func randomURLPassword(byteLen int) (string, error) {
+	buf := make([]byte, byteLen)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func shouldPromptForProxmoxAPIAuth(cmd *cobra.Command, vp *viper.Viper, currentValue string) bool {
@@ -365,6 +545,161 @@ func discoverLocalPublicKeyOptions() []string {
 	return infraSSH.DiscoverPublicKeyContents(rootViperCfg.GetString("ssh_key"))
 }
 
+func forceLxcSSHReadiness(req *proxmox.LxcContainer) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("LXC request is required")
+	}
+	if req.VmId <= 0 {
+		return "", fmt.Errorf("container VM ID is required for --ssh-force")
+	}
+	if strings.TrimSpace(req.Node) == "" {
+		return "", fmt.Errorf("Proxmox node is required for --ssh-force")
+	}
+	if len(req.SshPublicKeys) == 0 {
+		return "", fmt.Errorf("--ssh-force requires at least one SSH public key; pass --ssh-public-keys or accept the SSH key prompt")
+	}
+
+	sshClient, err := initializeProxmoxAdminSSH(req.Node)
+	if err != nil {
+		return "", fmt.Errorf("initialize proxmox SSH for --ssh-force: %w", err)
+	}
+	defer sshClient.Close()
+
+	if req.Start != "1" {
+		fmt.Printf("Starting container %d so SSH can be prepared...\n", req.VmId)
+		if _, err := runRemoteQuotedCommand(sshClient, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
+			return "", fmt.Errorf("start container %d for --ssh-force: %w", req.VmId, err)
+		}
+	}
+
+	if err := waitForLxcRunningOverSSH(sshClient, req.VmId, 2*time.Minute); err != nil {
+		return "", err
+	}
+
+	osInfo, err := detectLxcOSTypeOverSSH(sshClient, req.VmId)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Container %d OS: %s.\n", req.VmId, osInfo)
+
+	ipAddr, err := waitForLxcIPv4OverSSH(sshClient, req.VmId, 3*time.Minute)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Container %d reported IPv4 address %s.\n", req.VmId, ipAddr)
+
+	if err := ensureLxcSSHServerAndRootKeysOverSSH(sshClient, req.VmId, req.SshPublicKeys); err != nil {
+		return "", err
+	}
+	fmt.Printf("Container %d SSH server is installed, enabled, and has root authorized_keys.\n", req.VmId)
+
+	return ipAddr, nil
+}
+
+func detectLxcOSTypeOverSSH(sshClient *goph.Client, vmid int) (string, error) {
+	script := `if [ -r /etc/os-release ]; then . /etc/os-release; printf '%s' "${PRETTY_NAME:-${ID:-unknown}}"; else uname -s; fi`
+	out, err := runPctExecShellScript(sshClient, vmid, script)
+	if err != nil {
+		return "", fmt.Errorf("detect container OS for %d: %w", vmid, err)
+	}
+
+	osInfo := strings.TrimSpace(string(out))
+	if osInfo == "" {
+		return "unknown", nil
+	}
+	return osInfo, nil
+}
+
+func ensureLxcSSHServerAndRootKeysOverSSH(sshClient *goph.Client, vmid int, publicKeys []string) error {
+	keys := sanitizeSSHPublicKeys(publicKeys)
+	if len(keys) == 0 {
+		return fmt.Errorf("no usable SSH public keys were provided")
+	}
+
+	script := `set -eu
+if [ -r /etc/os-release ]; then . /etc/os-release; fi
+has_sshd() {
+	command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || [ -x /usr/local/sbin/sshd ]
+}
+if ! has_sshd; then
+	if command -v dnf >/dev/null 2>&1; then
+		dnf -y install openssh-server
+	elif command -v yum >/dev/null 2>&1; then
+		yum -y install openssh-server
+	elif command -v apt-get >/dev/null 2>&1; then
+		apt-get update
+		DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server
+	elif command -v zypper >/dev/null 2>&1; then
+		zypper --non-interactive install openssh
+	elif command -v apk >/dev/null 2>&1; then
+		apk add --no-cache openssh
+	elif command -v pacman >/dev/null 2>&1; then
+		pacman -Sy --noconfirm openssh
+	else
+		echo "no supported package manager found to install openssh-server" >&2
+		exit 1
+	fi
+fi
+install -d -m 0700 /root/.ssh
+touch /root/.ssh/authorized_keys
+chmod 0600 /root/.ssh/authorized_keys
+while IFS= read -r key; do
+	[ -n "$key" ] || continue
+	grep -qxF "$key" /root/.ssh/authorized_keys || printf '%s\n' "$key" >> /root/.ssh/authorized_keys
+done <<'INFRACTL_SSH_KEYS'
+` + strings.Join(keys, "\n") + `
+INFRACTL_SSH_KEYS
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl enable --now sshd >/dev/null 2>&1 || systemctl enable --now ssh >/dev/null 2>&1 || true
+fi
+if ! pgrep -x sshd >/dev/null 2>&1; then
+	if command -v service >/dev/null 2>&1; then
+		service sshd start >/dev/null 2>&1 || service ssh start >/dev/null 2>&1 || true
+	fi
+fi
+if ! pgrep -x sshd >/dev/null 2>&1; then
+	if command -v sshd >/dev/null 2>&1; then
+		sshd
+	elif [ -x /usr/sbin/sshd ]; then
+		/usr/sbin/sshd
+	elif [ -x /usr/local/sbin/sshd ]; then
+		/usr/local/sbin/sshd
+	fi
+fi
+pgrep -x sshd >/dev/null 2>&1`
+
+	if _, err := runPctExecShellScript(sshClient, vmid, script); err != nil {
+		return fmt.Errorf("ensure SSH server and root authorized_keys in container %d: %w", vmid, err)
+	}
+	return nil
+}
+
+func sanitizeSSHPublicKeys(keys []string) []string {
+	sanitized := make([]string, 0, len(keys))
+	seen := make(map[string]struct{})
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || strings.ContainsAny(key, "\r\n") {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		sanitized = append(sanitized, key)
+	}
+	return sanitized
+}
+
+func runPctExecShellScript(sshClient *goph.Client, vmid int, script string) ([]byte, error) {
+	command := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(script)
+	out, err := sshClient.Run("sh -c " + shellQuote(command))
+	if err != nil {
+		return nil, formatSSHExecError(err, out)
+	}
+	return out, nil
+}
+
 func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPort uint) error {
 	sshClient, err := initializeProxmoxAdminSSH(req.Node)
 	if err != nil {
@@ -443,10 +778,9 @@ func waitForLxcIPv4OverSSH(sshClient *goph.Client, vmid int, timeout time.Durati
 }
 
 func getLxcPrimaryIPv4OverSSH(sshClient *goph.Client, vmid int) (string, error) {
-	script := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(`hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`)
-	out, err := sshClient.Run("sh -c " + shellQuote(script))
+	out, err := runPctExecShellScript(sshClient, vmid, `hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`)
 	if err != nil {
-		return "", formatSSHExecError(err, out)
+		return "", err
 	}
 
 	ipAddr := strings.TrimSpace(string(out))
@@ -541,6 +875,8 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().Int("cpu-units", 1024, "CPU weight")
 	proxmoxLxcCreateCmd.Flags().String("net0", "name=eth0,bridge=vmbr0,ip=dhcp,type=veth", "Network config")
 	proxmoxLxcCreateCmd.Flags().Bool("unprivileged", true, "Use unprivileged container")
+	proxmoxLxcCreateCmd.Flags().Bool("nesting", false, "Enable Proxmox LXC nesting feature")
+	proxmoxLxcCreateCmd.Flags().Bool("ssh-force", false, "Install and start SSH inside the container and authorize the selected root SSH key")
 	proxmoxLxcCreateCmd.Flags().Bool("start", true, "Start after create")
 	proxmoxLxcCreateCmd.Flags().Bool("console", true, "Attach console")
 }

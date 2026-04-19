@@ -24,9 +24,13 @@ const apiVmStopSubPath string = "/status/stop"
 type APIError struct {
 	Status int
 	Errors map[string]interface{}
+	Body   string
 }
 
 func (e *APIError) Error() string {
+	if strings.TrimSpace(e.Body) != "" {
+		return fmt.Sprintf("proxmox api error: status=%d errors=%v body=%s", e.Status, e.Errors, e.Body)
+	}
 	return fmt.Sprintf("proxmox api error: status=%d errors=%v", e.Status, e.Errors)
 }
 
@@ -227,7 +231,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, he
 			Errors map[string]interface{} `json:"errors"`
 		}
 		_ = json.Unmarshal(bodyBytes, &wrapper)
-		return &APIError{Status: resp.StatusCode, Errors: wrapper.Errors}
+		return &APIError{Status: resp.StatusCode, Errors: wrapper.Errors, Body: string(bodyBytes)}
 	}
 
 	if out != nil && len(bodyBytes) > 0 {

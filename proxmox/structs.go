@@ -172,6 +172,9 @@ func (lxc *LxcContainer) ToFormParams() map[string]string {
 	if lxc.Unprivileged != "" {
 		params["unprivileged"] = lxc.Unprivileged
 	}
+	if lxc.Features != "" {
+		params["features"] = lxc.Features
+	}
 
 	return params
 }

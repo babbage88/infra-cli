@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/babbage88/goph/v2"
@@ -34,6 +35,9 @@ type proxmoxNewTokenOptions struct {
 	Comment            string
 	Role               string
 	ACLPath            string
+	ExpirationDate     string
+	DaysValid          int
+	ExpireUnix         int64
 	Privsep            bool
 	WriteDefaultConfig bool
 	Force              bool
@@ -150,6 +154,9 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 	if strings.TrimSpace(cfg.Comment) != "" {
 		tokenArgs = append(tokenArgs, "--comment", cfg.Comment)
 	}
+	if cfg.ExpireUnix > 0 {
+		tokenArgs = append(tokenArgs, "--expire", strconv.FormatInt(cfg.ExpireUnix, 10))
+	}
 
 	out, err := runRemoteQuotedCommand(sshClient, tokenArgs...)
 	if err != nil {
@@ -213,7 +220,6 @@ func infractlManagerPrivileges() []string {
 		"VM.Config.Network",
 		"VM.Config.Options",
 		"VM.Migrate",
-		"VM.Monitor",
 		"VM.PowerMgmt",
 	}
 }
