@@ -696,9 +696,22 @@ func promptSelectSSHPublicKeysPlain(label string, options []infraSSH.PublicKeyOp
 	}
 }
 
-type lxcSSHForceLogSink func(string)
+type lxcSSHForceLogSink func(lxcSSHForceLogEntry)
 
-type lxcSSHForceLogMsg string
+type lxcSSHForceLogKind string
+
+const (
+	lxcSSHForceLogStatus  lxcSSHForceLogKind = "status"
+	lxcSSHForceLogCommand lxcSSHForceLogKind = "command"
+)
+
+type lxcSSHForceLogEntry struct {
+	Kind  lxcSSHForceLogKind
+	Label string
+	Body  string
+}
+
+type lxcSSHForceLogMsg lxcSSHForceLogEntry
 
 type lxcSSHForceDoneMsg struct {
 	ipAddr string
@@ -706,20 +719,26 @@ type lxcSSHForceDoneMsg struct {
 }
 
 type lxcSSHForceViewportModel struct {
-	viewport viewport.Model
-	lines    []string
-	done     bool
-	ipAddr   string
-	err      error
+	viewport     viewport.Model
+	entries      []lxcSSHForceLogEntry
+	done         bool
+	ipAddr       string
+	err          error
+	contentWidth int
 }
 
 func newLxcSSHForceViewportModel() lxcSSHForceViewportModel {
 	vp := viewport.New(viewport.WithWidth(96), viewport.WithHeight(18))
 	vp.SoftWrap = true
 	vp.FillHeight = true
+	vp.Style = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3B4250")).
+		Padding(1, 2).
+		Background(lipgloss.Color("#101216"))
 
-	model := lxcSSHForceViewportModel{viewport: vp}
-	model.appendLine("Forcing container SSH readiness...")
+	model := lxcSSHForceViewportModel{viewport: vp, contentWidth: 88}
+	model.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: "Forcing container SSH readiness..."})
 	return model
 }
 
@@ -732,6 +751,8 @@ func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.viewport.SetWidth(max(24, msg.Width))
 		m.viewport.SetHeight(max(6, msg.Height-4))
+		m.contentWidth = max(20, msg.Width-m.viewport.Style.GetHorizontalFrameSize()-4)
+		m.renderContent()
 	case tea.KeyPressMsg:
 		if m.done {
 			switch msg.String() {
@@ -740,19 +761,15 @@ func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case lxcSSHForceLogMsg:
-		for _, line := range strings.Split(strings.TrimRight(string(msg), "\n"), "\n") {
-			m.appendLine(line)
-		}
+		m.appendEntry(lxcSSHForceLogEntry(msg))
 	case lxcSSHForceDoneMsg:
 		m.done = true
 		m.ipAddr = msg.ipAddr
 		m.err = msg.err
 		if msg.err != nil {
-			m.appendLine("")
-			m.appendLine("Error: " + msg.err.Error())
+			m.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Label: "failed", Body: msg.err.Error()})
 		} else {
-			m.appendLine("")
-			m.appendLine("SSH readiness completed.")
+			m.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Label: "done", Body: "SSH readiness completed."})
 		}
 	}
 
@@ -762,27 +779,145 @@ func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m lxcSSHForceViewportModel) View() tea.View {
-	status := "running"
+	status := lxcSSHForceMutedStyle.Render("running")
 	if m.done {
-		status = "done"
+		status = lxcSSHForceSuccessStyle.Render("done")
 		if m.err != nil {
-			status = "failed"
+			status = lxcSSHForceErrorStyle.Render("failed")
 		}
 	}
 
-	header := fmt.Sprintf("LXC SSH force setup (%s)\n", status)
-	footer := "Scroll: up/down, pgup/pgdn"
+	header := lxcSSHForceTitleStyle.Render("LXC SSH force setup") + " " + status + "\n"
+	footer := lxcSSHForceHelpStyle.Render("Scroll: up/down, pgup/pgdn")
 	if m.done {
-		footer += "  Close: enter/q/esc"
+		footer += lxcSSHForceHelpStyle.Render("  Close: enter/q/esc")
 	}
 
 	return tea.NewView(header + m.viewport.View() + "\n" + footer)
 }
 
-func (m *lxcSSHForceViewportModel) appendLine(line string) {
-	m.lines = append(m.lines, line)
-	m.viewport.SetContent(strings.Join(m.lines, "\n"))
+func (m *lxcSSHForceViewportModel) appendEntry(entry lxcSSHForceLogEntry) {
+	entry.Body = strings.TrimRight(entry.Body, "\n")
+	m.entries = append(m.entries, entry)
+	m.renderContent()
+}
+
+func (m *lxcSSHForceViewportModel) renderContent() {
+	rendered, err := renderLxcSSHForceMarkdown(m.entries, m.contentWidth)
+	if err != nil {
+		rendered = lxcSSHForcePlainMarkdown(m.entries)
+	}
+	m.viewport.SetContent(strings.TrimRight(rendered, "\n"))
 	m.viewport.GotoBottom()
+}
+
+var (
+	lxcSSHForceTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8A929E"))
+	lxcSSHForceMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#636A73"))
+	lxcSSHForceHelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#505761"))
+	lxcSSHForceSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B8F71"))
+	lxcSSHForceErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#A36A6A"))
+)
+
+func renderLxcSSHForceMarkdown(entries []lxcSSHForceLogEntry, width int) (string, error) {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithStyles(lxcSSHForceGlamourStyle()),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return "", err
+	}
+	return renderer.Render(lxcSSHForcePlainMarkdown(entries))
+}
+
+func lxcSSHForcePlainMarkdown(entries []lxcSSHForceLogEntry) string {
+	var builder strings.Builder
+	builder.WriteString("## Activity\n\n")
+	for _, entry := range entries {
+		switch entry.Kind {
+		case lxcSSHForceLogCommand:
+			builder.WriteString("#### STDOUT / STDERR")
+			if strings.TrimSpace(entry.Label) != "" {
+				builder.WriteString(": `" + escapeMarkdownInline(entry.Label) + "`")
+			}
+			builder.WriteString("\n\n```text\n")
+			builder.WriteString(strings.TrimRight(entry.Body, "\n"))
+			builder.WriteString("\n```\n\n")
+		default:
+			label := "infractl"
+			if strings.TrimSpace(entry.Label) != "" {
+				label = entry.Label
+			}
+			builder.WriteString("> **" + escapeMarkdownInline(label) + "** " + escapeMarkdownText(entry.Body) + "\n\n")
+		}
+	}
+	return builder.String()
+}
+
+func lxcSSHForceGlamourStyle() glamansi.StyleConfig {
+	gray := "#717780"
+	dim := "#565D66"
+	bg := "#101216"
+	codeBg := "#15181D"
+	border := "#4D5360"
+	accent := "#7A8191"
+	infractl := "#7D8B87"
+	bold := true
+	faint := true
+	zero := uint(0)
+	one := uint(1)
+	two := uint(2)
+
+	return glamansi.StyleConfig{
+		Document: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &gray, BackgroundColor: &bg},
+			Margin:         &zero,
+		},
+		Paragraph: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &gray},
+			Margin:         &zero,
+		},
+		Heading: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &accent, Bold: &bold},
+			Margin:         &zero,
+		},
+		H2: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &accent, Bold: &bold, Prefix: "## "},
+			Margin:         &zero,
+		},
+		H4: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &dim, Bold: &bold},
+			Margin:         &zero,
+		},
+		BlockQuote: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &infractl, BorderLeft: ""},
+			Indent:         &two,
+			IndentToken:    ptrString("│ "),
+			Margin:         &zero,
+		},
+		Strong: glamansi.StylePrimitive{Color: &infractl, Bold: &bold},
+		Code: glamansi.StyleBlock{
+			StylePrimitive: glamansi.StylePrimitive{Color: &gray, BackgroundColor: &codeBg},
+		},
+		CodeBlock: glamansi.StyleCodeBlock{
+			StyleBlock: glamansi.StyleBlock{
+				StylePrimitive: glamansi.StylePrimitive{
+					Color:           &gray,
+					BackgroundColor: &codeBg,
+				},
+				Margin: &one,
+			},
+			Chroma: &glamansi.Chroma{
+				Text:       glamansi.StylePrimitive{Color: &gray, BackgroundColor: &codeBg},
+				Background: glamansi.StylePrimitive{BackgroundColor: &codeBg},
+				Comment:    glamansi.StylePrimitive{Color: &dim, Faint: &faint},
+				Name:       glamansi.StylePrimitive{Color: &gray},
+				Keyword:    glamansi.StylePrimitive{Color: &border},
+				Literal:    glamansi.StylePrimitive{Color: &gray},
+			},
+		},
+		Text: glamansi.StylePrimitive{Color: &gray},
+	}
 }
 
 func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
