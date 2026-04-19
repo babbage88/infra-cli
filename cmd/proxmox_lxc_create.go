@@ -33,6 +33,7 @@ var (
 type lxcCreateResultInfo struct {
 	GeneratedRootPassword string
 	IPv4Address           string
+	SSHUser               string
 }
 
 type lxcSSHForceOptions = proxmox.LxcSSHForceOptions
@@ -119,18 +120,14 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		}
 		if adminOptions.AddAdminUser {
 			forceSSH = true
+			resultInfo.SSHUser = adminOptions.AdminUser
 		}
-		if forceSSH {
-			ipAddr, err := runLxcSSHForceReadiness(&newLxcRequest, adminOptions)
+		if forceSSH || runInitScript {
+			ipAddr, err := runLxcPostCreateSetup(&newLxcRequest, adminOptions, forceSSH, runInitScript, customInitScript)
 			if err != nil {
 				return err
 			}
 			resultInfo.IPv4Address = ipAddr
-		}
-		if runInitScript {
-			if err := runLxcCustomInitScript(&newLxcRequest, customInitScript); err != nil {
-				return err
-			}
 		}
 		if localViper.GetBool("verify") {
 			fmt.Println("Verifying container boot and SSH reachability...")
@@ -160,7 +157,7 @@ func promptForLxcCustomInitScript() string {
 	return tui.TextArea("Custom init script", defaultLxcCustomInitScript)
 }
 
-func runLxcCustomInitScript(req *proxmox.LxcContainer, script string) error {
+func runLxcCustomInitScriptWithLog(sshClient infraSSH.Client, req *proxmox.LxcContainer, script string, ensureStarted bool, log lxcSSHForceLogSink) error {
 	if req == nil {
 		return fmt.Errorf("LXC request is required")
 	}
@@ -174,25 +171,19 @@ func runLxcCustomInitScript(req *proxmox.LxcContainer, script string) error {
 		return fmt.Errorf("--run-init-script requires --custom-script or a prompted script")
 	}
 
-	sshClient, err := initializeProxmoxAdminSSH(req.Node)
-	if err != nil {
-		return fmt.Errorf("initialize proxmox SSH for --run-init-script: %w", err)
-	}
-	defer sshClient.Close()
-
-	if req.Start != "1" {
-		fmt.Printf("Starting container %d so the init script can run...\n", req.VmId)
-		if _, err := proxmox.RunRemoteQuotedCommandWithLog(sshClient, nil, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
+	if ensureStarted && req.Start != "1" {
+		lxcSetupStatusf(log, "Starting container %d so the init script can run...", req.VmId)
+		if _, err := proxmox.RunRemoteQuotedCommandWithLog(sshClient, log, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
 			return fmt.Errorf("start container %d for --run-init-script: %w", req.VmId, err)
 		}
 	}
-	if err := proxmox.WaitForLxcRunningOverSSH(sshClient, req.VmId, 2*time.Minute); err != nil {
+	if err := proxmox.WaitForLxcRunningOverSSHWithLog(sshClient, req.VmId, 2*time.Minute, log); err != nil {
 		return fmt.Errorf("wait for container %d to run before --run-init-script: %w", req.VmId, err)
 	}
 
-	fmt.Println("Running custom init script...")
-	out, err := proxmox.RunPctExecShellScript(sshClient, req.VmId, lxcCustomInitScriptRunner(script))
-	if len(strings.TrimSpace(string(out))) > 0 {
+	lxcSetupStatusf(log, "Running custom init script...")
+	out, err := proxmox.RunPctExecShellScriptWithLog(sshClient, req.VmId, lxcCustomInitScriptRunner(script), log)
+	if log == nil && len(strings.TrimSpace(string(out))) > 0 {
 		fmt.Print(string(out))
 		if !strings.HasSuffix(string(out), "\n") {
 			fmt.Println()
@@ -201,7 +192,7 @@ func runLxcCustomInitScript(req *proxmox.LxcContainer, script string) error {
 	if err != nil {
 		return fmt.Errorf("run custom init script: %w", err)
 	}
-	fmt.Println("Custom init script completed successfully.")
+	lxcSetupStatusf(log, "Custom init script completed successfully.")
 	return nil
 }
 
@@ -217,7 +208,13 @@ chmod 700 "$tmp"
 }
 
 func printLxcCreateConnectionInfo(req *proxmox.LxcContainer, info lxcCreateResultInfo) {
-	if strings.TrimSpace(info.GeneratedRootPassword) == "" {
+	ipAddr := strings.TrimSpace(info.IPv4Address)
+	rootPassword := strings.TrimSpace(info.GeneratedRootPassword)
+	sshUser := strings.TrimSpace(info.SSHUser)
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	if ipAddr == "" && rootPassword == "" {
 		return
 	}
 
@@ -230,10 +227,12 @@ func printLxcCreateConnectionInfo(req *proxmox.LxcContainer, info lxcCreateResul
 			fmt.Printf("  Hostname: %s\n", req.Hostname)
 		}
 	}
-	if strings.TrimSpace(info.IPv4Address) != "" {
-		fmt.Printf("  SSH: ssh root@%s\n", info.IPv4Address)
+	if ipAddr != "" {
+		fmt.Printf("  SSH: ssh %s@%s\n", sshUser, ipAddr)
 	}
-	fmt.Printf("  Root password: %s\n", info.GeneratedRootPassword)
+	if rootPassword != "" {
+		fmt.Printf("  Root password: %s\n", rootPassword)
+	}
 }
 
 func applyRootProxmoxDefaults(vp *viper.Viper) {
@@ -797,7 +796,7 @@ func newLxcSSHForceViewportModel() lxcSSHForceViewportModel {
 		Padding(0, 1)
 
 	model := lxcSSHForceViewportModel{viewport: vp, contentWidth: 100}
-	model.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: "Forcing container SSH readiness..."})
+	model.appendEntry(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: "Preparing LXC post-create setup..."})
 	return model
 }
 
@@ -843,16 +842,16 @@ func (m lxcSSHForceViewportModel) View() tea.View {
 		}
 	}
 
-	header := lxcSSHForceTitleStyle.Render("LXC SSH force setup") + " " + status + "\n"
+	header := lxcSSHForceTitleStyle.Render("LXC post-create setup") + " " + status + "\n"
 	statusPanel := m.statusPanel()
 	footer := lxcSSHForceHelpStyle.Render("Scroll: up/down, pgup/pgdn")
 
 	donePrompt := ""
 	if m.done {
-		doneText := "SSH readiness completed successfully. Press enter, q, or esc to continue."
+		doneText := "LXC post-create setup completed successfully. Press enter, q, or esc to continue."
 		doneStyle := lxcSSHForceDonePromptStyle
 		if m.err != nil {
-			doneText = "SSH readiness failed: " + lxcSSHForcePromptError(m.err, m.viewport.Width()) + " Press enter, q, or esc to continue."
+			doneText = "LXC post-create setup failed: " + lxcSSHForcePromptError(m.err, m.viewport.Width()) + " Press enter, q, or esc to continue."
 			doneStyle = lxcSSHForceErrorPromptStyle
 		}
 		donePrompt = "\n" + doneStyle.Render(doneText)
@@ -998,7 +997,7 @@ func lxcSSHForcePromptError(err error, width int) string {
 	}
 
 	const suffix = " See stdout/stderr above."
-	maxWidth := max(48, width-len("SSH readiness failed:  Press enter, q, or esc to continue."))
+	maxWidth := max(48, width-len("LXC post-create setup failed:  Press enter, q, or esc to continue."))
 	if len(value)+len(suffix) > maxWidth {
 		value = truncatePlain(value, max(16, maxWidth-len(suffix)))
 	}
@@ -1012,10 +1011,9 @@ func padPlainRight(value string, width int) string {
 	return value + strings.Repeat(" ", width-len(value))
 }
 
-func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
+func runLxcPostCreateSetup(req *proxmox.LxcContainer, options lxcSSHForceOptions, forceSSH bool, runInitScript bool, customInitScript string) (string, error) {
 	if !tui.IsInteractive() {
-		fmt.Println("Forcing container SSH readiness...")
-		return forceLxcSSHReadinessWithLog(req, options, nil)
+		return runLxcPostCreateSetupWithLog(req, options, forceSSH, runInitScript, customInitScript, nil)
 	}
 
 	model := newLxcSSHForceViewportModel()
@@ -1024,19 +1022,69 @@ func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptio
 		logger := func(entry lxcSSHForceLogEntry) {
 			program.Send(lxcSSHForceLogMsg(entry))
 		}
-		ipAddr, err := forceLxcSSHReadinessWithLog(req, options, logger)
+		ipAddr, err := runLxcPostCreateSetupWithLog(req, options, forceSSH, runInitScript, customInitScript, logger)
 		program.Send(lxcSSHForceDoneMsg{ipAddr: ipAddr, err: err})
 	}()
 
 	result, err := program.Run()
 	if err != nil {
-		return "", fmt.Errorf("run SSH force output UI: %w", err)
+		return "", fmt.Errorf("run LXC setup output UI: %w", err)
 	}
 	finalModel, ok := result.(lxcSSHForceViewportModel)
 	if !ok {
-		return "", fmt.Errorf("run SSH force output UI: unexpected model %T", result)
+		return "", fmt.Errorf("run LXC setup output UI: unexpected model %T", result)
 	}
 	return finalModel.ipAddr, finalModel.err
+}
+
+func runLxcPostCreateSetupWithLog(req *proxmox.LxcContainer, options lxcSSHForceOptions, forceSSH bool, runInitScript bool, customInitScript string, log lxcSSHForceLogSink) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("LXC request is required")
+	}
+	if strings.TrimSpace(req.Node) == "" {
+		return "", fmt.Errorf("Proxmox node is required for post-create setup")
+	}
+
+	sshClient, err := initializeProxmoxAdminSSH(req.Node)
+	if err != nil {
+		return "", fmt.Errorf("initialize proxmox SSH for post-create setup: %w", err)
+	}
+	defer sshClient.Close()
+
+	var ipAddr string
+	containerPrepared := false
+	if forceSSH {
+		lxcSetupStatusf(log, "Forcing container SSH readiness...")
+		ipAddr, err = proxmox.ForceLxcSSHReadinessWithLog(sshClient, req, options, log)
+		if err != nil {
+			return "", err
+		}
+		containerPrepared = true
+	}
+
+	if runInitScript {
+		if err := runLxcCustomInitScriptWithLog(sshClient, req, customInitScript, !containerPrepared, log); err != nil {
+			return "", err
+		}
+	}
+	if ipAddr == "" {
+		ipAddr, err = proxmox.WaitForLxcIPv4OverSSHWithLog(sshClient, req.VmId, 3*time.Minute, log)
+		if err != nil {
+			return "", err
+		}
+		lxcSetupStatusf(log, "Container %d reported IPv4 address %s.", req.VmId, ipAddr)
+	}
+
+	return ipAddr, nil
+}
+
+func lxcSetupStatusf(log lxcSSHForceLogSink, format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	if log == nil {
+		fmt.Println(line)
+		return
+	}
+	log(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: line})
 }
 
 func forceLxcSSHReadinessWithLog(req *proxmox.LxcContainer, options lxcSSHForceOptions, log lxcSSHForceLogSink) (string, error) {

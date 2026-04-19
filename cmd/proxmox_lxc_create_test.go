@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/babbage88/infra-cli/proxmox"
 )
 
 func TestRenderLxcSSHForceCommandEntriesDoesNotEmitRawCarriageReturns(t *testing.T) {
@@ -35,4 +39,60 @@ func TestLxcSSHForcePromptErrorIsSingleLineAndCompact(t *testing.T) {
 	if len(rendered) > 96 {
 		t.Fatalf("prompt error was not compacted: len=%d value=%q", len(rendered), rendered)
 	}
+}
+
+func TestPrintLxcCreateConnectionInfoShowsSSHWithoutGeneratedPassword(t *testing.T) {
+	output := captureStdout(t, func() {
+		printLxcCreateConnectionInfo(&proxmox.LxcContainer{VmId: 256, Hostname: "web-01"}, lxcCreateResultInfo{
+			IPv4Address: "10.0.1.38",
+		})
+	})
+
+	if !strings.Contains(output, "SSH: ssh root@10.0.1.38") {
+		t.Fatalf("connection info missing SSH instruction: %q", output)
+	}
+	if strings.Contains(output, "Root password:") {
+		t.Fatalf("connection info printed an empty root password line: %q", output)
+	}
+}
+
+func TestPrintLxcCreateConnectionInfoUsesAdminUserForSSH(t *testing.T) {
+	output := captureStdout(t, func() {
+		printLxcCreateConnectionInfo(&proxmox.LxcContainer{VmId: 257, Hostname: "appdev007"}, lxcCreateResultInfo{
+			IPv4Address: "10.0.1.39",
+			SSHUser:     "jtrahan",
+		})
+	})
+
+	if !strings.Contains(output, "SSH: ssh jtrahan@10.0.1.39") {
+		t.Fatalf("connection info missing admin SSH instruction: %q", output)
+	}
+	if strings.Contains(output, "SSH: ssh root@10.0.1.39") {
+		t.Fatalf("connection info still printed root SSH instruction: %q", output)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(out)
 }
