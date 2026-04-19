@@ -890,9 +890,9 @@ func lxcSSHForceGlamourStyle() glamansi.StyleConfig {
 			Margin:         &zero,
 		},
 		BlockQuote: glamansi.StyleBlock{
-			StylePrimitive: glamansi.StylePrimitive{Color: &infractl, BorderLeft: ""},
+			StylePrimitive: glamansi.StylePrimitive{Color: &infractl},
 			Indent:         &two,
-			IndentToken:    ptrString("│ "),
+			IndentToken:    stringPtr("│ "),
 			Margin:         &zero,
 		},
 		Strong: glamansi.StylePrimitive{Color: &infractl, Bold: &bold},
@@ -920,6 +920,30 @@ func lxcSSHForceGlamourStyle() glamansi.StyleConfig {
 	}
 }
 
+func escapeMarkdownInline(value string) string {
+	value = strings.ReplaceAll(value, "\\", "\\\\")
+	value = strings.ReplaceAll(value, "`", "\\`")
+	value = strings.ReplaceAll(value, "[", "\\[")
+	value = strings.ReplaceAll(value, "]", "\\]")
+	return value
+}
+
+func escapeMarkdownText(value string) string {
+	replacer := strings.NewReplacer(
+		"\\", "\\\\",
+		"*", "\\*",
+		"_", "\\_",
+		"`", "\\`",
+		"[", "\\[",
+		"]", "\\]",
+	)
+	return replacer.Replace(value)
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
 func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
 	if !tui.IsInteractive() {
 		fmt.Println("Forcing container SSH readiness...")
@@ -929,8 +953,8 @@ func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptio
 	model := newLxcSSHForceViewportModel()
 	program := tea.NewProgram(model)
 	go func() {
-		logger := func(line string) {
-			program.Send(lxcSSHForceLogMsg(line))
+		logger := func(entry lxcSSHForceLogEntry) {
+			program.Send(lxcSSHForceLogMsg(entry))
 		}
 		ipAddr, err := forceLxcSSHReadinessWithLog(req, options, logger)
 		program.Send(lxcSSHForceDoneMsg{ipAddr: ipAddr, err: err})
@@ -1229,7 +1253,7 @@ func lxcSSHForceStatusf(log lxcSSHForceLogSink, format string, args ...any) {
 		fmt.Println(line)
 		return
 	}
-	log(line)
+	log(lxcSSHForceLogEntry{Kind: lxcSSHForceLogStatus, Body: line})
 }
 
 func lxcSSHForceCommandOutput(log lxcSSHForceLogSink, label string, out []byte) {
@@ -1240,10 +1264,7 @@ func lxcSSHForceCommandOutput(log lxcSSHForceLogSink, label string, out []byte) 
 	if output == "" {
 		return
 	}
-	log("Combined stdout/stderr from " + label + ":")
-	for _, line := range strings.Split(output, "\n") {
-		log("  " + line)
-	}
+	log(lxcSSHForceLogEntry{Kind: lxcSSHForceLogCommand, Label: label, Body: output})
 }
 
 func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPort uint) error {
