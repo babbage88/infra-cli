@@ -1242,6 +1242,9 @@ func lxcSSHForceCommandOutput(log lxcSSHForceLogSink, label string, out []byte) 
 	if log == nil {
 		return
 	}
+	if strings.HasPrefix(label, "pct status ") {
+		return
+	}
 	output := strings.TrimSpace(string(out))
 	if output == "" {
 		return
