@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
@@ -119,8 +120,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			forceSSH = true
 		}
 		if forceSSH {
-			fmt.Println("Forcing container SSH readiness...")
-			ipAddr, err := forceLxcSSHReadiness(&newLxcRequest, adminOptions)
+			ipAddr, err := runLxcSSHForceReadiness(&newLxcRequest, adminOptions)
 			if err != nil {
 				return err
 			}
@@ -693,7 +693,127 @@ func promptSelectSSHPublicKeysPlain(label string, options []infraSSH.PublicKeyOp
 	}
 }
 
+type lxcSSHForceLogSink func(string)
+
+type lxcSSHForceLogMsg string
+
+type lxcSSHForceDoneMsg struct {
+	ipAddr string
+	err    error
+}
+
+type lxcSSHForceViewportModel struct {
+	viewport viewport.Model
+	lines    []string
+	done     bool
+	ipAddr   string
+	err      error
+}
+
+func newLxcSSHForceViewportModel() lxcSSHForceViewportModel {
+	vp := viewport.New(viewport.WithWidth(96), viewport.WithHeight(18))
+	vp.SoftWrap = true
+	vp.FillHeight = true
+
+	model := lxcSSHForceViewportModel{viewport: vp}
+	model.appendLine("Forcing container SSH readiness...")
+	return model
+}
+
+func (m lxcSSHForceViewportModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m lxcSSHForceViewportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.viewport.SetWidth(max(24, msg.Width))
+		m.viewport.SetHeight(max(6, msg.Height-4))
+	case tea.KeyPressMsg:
+		if m.done {
+			switch msg.String() {
+			case "enter", "q", "esc", "ctrl+c":
+				return m, tea.Quit
+			}
+		}
+	case lxcSSHForceLogMsg:
+		for _, line := range strings.Split(strings.TrimRight(string(msg), "\n"), "\n") {
+			m.appendLine(line)
+		}
+	case lxcSSHForceDoneMsg:
+		m.done = true
+		m.ipAddr = msg.ipAddr
+		m.err = msg.err
+		if msg.err != nil {
+			m.appendLine("")
+			m.appendLine("Error: " + msg.err.Error())
+		} else {
+			m.appendLine("")
+			m.appendLine("SSH readiness completed.")
+		}
+	}
+
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	return m, cmd
+}
+
+func (m lxcSSHForceViewportModel) View() tea.View {
+	status := "running"
+	if m.done {
+		status = "done"
+		if m.err != nil {
+			status = "failed"
+		}
+	}
+
+	header := fmt.Sprintf("LXC SSH force setup (%s)\n", status)
+	footer := "Scroll: up/down, pgup/pgdn"
+	if m.done {
+		footer += "  Close: enter/q/esc"
+	}
+
+	return tea.NewView(header + m.viewport.View() + "\n" + footer)
+}
+
+func (m *lxcSSHForceViewportModel) appendLine(line string) {
+	m.lines = append(m.lines, line)
+	m.viewport.SetContent(strings.Join(m.lines, "\n"))
+	m.viewport.GotoBottom()
+}
+
+func runLxcSSHForceReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
+	if !tui.IsInteractive() {
+		fmt.Println("Forcing container SSH readiness...")
+		return forceLxcSSHReadiness(req, options)
+	}
+
+	model := newLxcSSHForceViewportModel()
+	program := tea.NewProgram(model)
+	go func() {
+		logger := func(line string) {
+			program.Send(lxcSSHForceLogMsg(line))
+		}
+		ipAddr, err := forceLxcSSHReadinessWithLog(req, options, logger)
+		program.Send(lxcSSHForceDoneMsg{ipAddr: ipAddr, err: err})
+	}()
+
+	result, err := program.Run()
+	if err != nil {
+		return "", fmt.Errorf("run SSH force output UI: %w", err)
+	}
+	finalModel, ok := result.(lxcSSHForceViewportModel)
+	if !ok {
+		return "", fmt.Errorf("run SSH force output UI: unexpected model %T", result)
+	}
+	return finalModel.ipAddr, finalModel.err
+}
+
 func forceLxcSSHReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions) (string, error) {
+	return forceLxcSSHReadinessWithLog(req, options, nil)
+}
+
+func forceLxcSSHReadinessWithLog(req *proxmox.LxcContainer, options lxcSSHForceOptions, log lxcSSHForceLogSink) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("LXC request is required")
 	}
@@ -714,42 +834,46 @@ func forceLxcSSHReadiness(req *proxmox.LxcContainer, options lxcSSHForceOptions)
 	defer sshClient.Close()
 
 	if req.Start != "1" {
-		fmt.Printf("Starting container %d so SSH can be prepared...\n", req.VmId)
-		if _, err := runRemoteQuotedCommand(sshClient, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
+		lxcSSHForceStatusf(log, "Starting container %d so SSH can be prepared...", req.VmId)
+		if _, err := runRemoteQuotedCommandWithLog(sshClient, log, "pct", "start", fmt.Sprintf("%d", req.VmId)); err != nil {
 			return "", fmt.Errorf("start container %d for --ssh-force: %w", req.VmId, err)
 		}
 	}
 
-	if err := waitForLxcRunningOverSSH(sshClient, req.VmId, 2*time.Minute); err != nil {
+	if err := waitForLxcRunningOverSSHWithLog(sshClient, req.VmId, 2*time.Minute, log); err != nil {
 		return "", err
 	}
 
-	osInfo, err := detectLxcOSTypeOverSSH(sshClient, req.VmId)
+	osInfo, err := detectLxcOSTypeOverSSHWithLog(sshClient, req.VmId, log)
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("Container %d OS: %s.\n", req.VmId, osInfo)
+	lxcSSHForceStatusf(log, "Container %d OS: %s.", req.VmId, osInfo)
 
-	ipAddr, err := waitForLxcIPv4OverSSH(sshClient, req.VmId, 3*time.Minute)
+	ipAddr, err := waitForLxcIPv4OverSSHWithLog(sshClient, req.VmId, 3*time.Minute, log)
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("Container %d reported IPv4 address %s.\n", req.VmId, ipAddr)
+	lxcSSHForceStatusf(log, "Container %d reported IPv4 address %s.", req.VmId, ipAddr)
 
-	if err := ensureLxcSSHServerAndUsersOverSSH(sshClient, req.VmId, req.SshPublicKeys, options); err != nil {
+	if err := ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient, req.VmId, req.SshPublicKeys, options, log); err != nil {
 		return "", err
 	}
-	fmt.Printf("Container %d SSH server is installed, enabled, and has root authorized_keys.\n", req.VmId)
+	lxcSSHForceStatusf(log, "Container %d SSH server is installed, enabled, and has root authorized_keys.", req.VmId)
 	if options.AddAdminUser {
-		fmt.Printf("Container %d admin user %s is ready.\n", req.VmId, options.AdminUser)
+		lxcSSHForceStatusf(log, "Container %d admin user %s is ready.", req.VmId, options.AdminUser)
 	}
 
 	return ipAddr, nil
 }
 
 func detectLxcOSTypeOverSSH(sshClient *goph.Client, vmid int) (string, error) {
+	return detectLxcOSTypeOverSSHWithLog(sshClient, vmid, nil)
+}
+
+func detectLxcOSTypeOverSSHWithLog(sshClient *goph.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
 	script := `if [ -r /etc/os-release ]; then . /etc/os-release; printf '%s' "${PRETTY_NAME:-${ID:-unknown}}"; else uname -s; fi`
-	out, err := runPctExecShellScript(sshClient, vmid, script)
+	out, err := runPctExecShellScriptWithLog(sshClient, vmid, script, log)
 	if err != nil {
 		return "", fmt.Errorf("detect container OS for %d: %w", vmid, err)
 	}
@@ -762,6 +886,10 @@ func detectLxcOSTypeOverSSH(sshClient *goph.Client, vmid int) (string, error) {
 }
 
 func ensureLxcSSHServerAndUsersOverSSH(sshClient *goph.Client, vmid int, publicKeys []string, options lxcSSHForceOptions) error {
+	return ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient, vmid, publicKeys, options, nil)
+}
+
+func ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient *goph.Client, vmid int, publicKeys []string, options lxcSSHForceOptions, log lxcSSHForceLogSink) error {
 	keys := sanitizeSSHPublicKeys(publicKeys)
 	if len(keys) == 0 {
 		return fmt.Errorf("no usable SSH public keys were provided")
@@ -778,6 +906,8 @@ func ensureLxcSSHServerAndUsersOverSSH(sshClient *goph.Client, vmid int, publicK
 			return fmt.Errorf("--admin-uid must be greater than zero when --add-admin-user is set")
 		}
 	}
+
+	lxcSSHForceStatusf(log, "Ensuring SSH server, authorized_keys, and requested users inside container %d...", vmid)
 
 	script := `set -eu
 if [ -r /etc/os-release ]; then . /etc/os-release; fi
@@ -861,7 +991,7 @@ if ! pgrep -x sshd >/dev/null 2>&1; then
 fi
 pgrep -x sshd >/dev/null 2>&1`
 
-	if _, err := runPctExecShellScript(sshClient, vmid, script); err != nil {
+	if _, err := runPctExecShellScriptWithLog(sshClient, vmid, script, log); err != nil {
 		return fmt.Errorf("ensure SSH server, users, and authorized_keys in container %d: %w", vmid, err)
 	}
 	return nil
@@ -926,12 +1056,56 @@ func sanitizeSSHPublicKeys(keys []string) []string {
 }
 
 func runPctExecShellScript(sshClient *goph.Client, vmid int, script string) ([]byte, error) {
+	return runPctExecShellScriptWithLog(sshClient, vmid, script, nil)
+}
+
+func runPctExecShellScriptWithLog(sshClient *goph.Client, vmid int, script string, log lxcSSHForceLogSink) ([]byte, error) {
 	command := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(script)
 	out, err := sshClient.Run("sh -c " + shellQuote(command))
+	lxcSSHForceCommandOutput(log, fmt.Sprintf("pct exec %d", vmid), out)
 	if err != nil {
 		return nil, formatSSHExecError(err, out)
 	}
 	return out, nil
+}
+
+func runRemoteQuotedCommandWithLog(sshClient *goph.Client, log lxcSSHForceLogSink, args ...string) ([]byte, error) {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuote(arg))
+	}
+
+	command := strings.Join(quoted, " ")
+	out, err := sshClient.Run(command)
+	lxcSSHForceCommandOutput(log, strings.Join(args, " "), out)
+	if err != nil {
+		return nil, formatSSHExecError(err, out)
+	}
+
+	return out, nil
+}
+
+func lxcSSHForceStatusf(log lxcSSHForceLogSink, format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	if log == nil {
+		fmt.Println(line)
+		return
+	}
+	log(line)
+}
+
+func lxcSSHForceCommandOutput(log lxcSSHForceLogSink, label string, out []byte) {
+	if log == nil {
+		return
+	}
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return
+	}
+	log("Combined stdout/stderr from " + label + ":")
+	for _, line := range strings.Split(output, "\n") {
+		log("  " + line)
+	}
 }
 
 func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPort uint) error {
@@ -977,11 +1151,16 @@ func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPor
 }
 
 func waitForLxcRunningOverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) error {
+	return waitForLxcRunningOverSSHWithLog(sshClient, vmid, timeout, nil)
+}
+
+func waitForLxcRunningOverSSHWithLog(sshClient *goph.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) error {
 	deadline := time.Now().Add(timeout)
+	lxcSSHForceStatusf(log, "Waiting for container %d to report running status...", vmid)
 	for {
-		out, err := runRemoteQuotedCommand(sshClient, "pct", "status", fmt.Sprintf("%d", vmid))
+		out, err := runRemoteQuotedCommandWithLog(sshClient, log, "pct", "status", fmt.Sprintf("%d", vmid))
 		if err == nil && strings.Contains(strings.ToLower(string(out)), "status: running") {
-			fmt.Printf("Container %d is running.\n", vmid)
+			lxcSSHForceStatusf(log, "Container %d is running.", vmid)
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -995,9 +1174,14 @@ func waitForLxcRunningOverSSH(sshClient *goph.Client, vmid int, timeout time.Dur
 }
 
 func waitForLxcIPv4OverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) (string, error) {
+	return waitForLxcIPv4OverSSHWithLog(sshClient, vmid, timeout, nil)
+}
+
+func waitForLxcIPv4OverSSHWithLog(sshClient *goph.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) (string, error) {
 	deadline := time.Now().Add(timeout)
+	lxcSSHForceStatusf(log, "Waiting for container %d to report an IPv4 address...", vmid)
 	for {
-		ipAddr, err := getLxcPrimaryIPv4OverSSH(sshClient, vmid)
+		ipAddr, err := getLxcPrimaryIPv4OverSSHWithLog(sshClient, vmid, log)
 		if err == nil && ipAddr != "" {
 			return ipAddr, nil
 		}
@@ -1012,7 +1196,11 @@ func waitForLxcIPv4OverSSH(sshClient *goph.Client, vmid int, timeout time.Durati
 }
 
 func getLxcPrimaryIPv4OverSSH(sshClient *goph.Client, vmid int) (string, error) {
-	out, err := runPctExecShellScript(sshClient, vmid, `hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`)
+	return getLxcPrimaryIPv4OverSSHWithLog(sshClient, vmid, nil)
+}
+
+func getLxcPrimaryIPv4OverSSHWithLog(sshClient *goph.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
+	out, err := runPctExecShellScriptWithLog(sshClient, vmid, `hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`, log)
 	if err != nil {
 		return "", err
 	}
