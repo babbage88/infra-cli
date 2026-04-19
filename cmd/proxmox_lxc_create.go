@@ -1110,6 +1110,9 @@ func init() {
 	proxmoxLxcCreateCmd.Flags().Bool("unprivileged", true, "Use unprivileged container")
 	proxmoxLxcCreateCmd.Flags().Bool("nesting", false, "Enable Proxmox LXC nesting feature")
 	proxmoxLxcCreateCmd.Flags().Bool("ssh-force", false, "Install and start SSH inside the container and authorize the selected root SSH key")
+	proxmoxLxcCreateCmd.Flags().Bool("add-admin-user", false, "Create a passwordless sudo admin user inside the container")
+	proxmoxLxcCreateCmd.Flags().String("admin-username", currentUserName(), "Admin username to create when --add-admin-user is set")
+	proxmoxLxcCreateCmd.Flags().Int("admin-uid", 1000, "Admin user UID to create when --add-admin-user is set")
 	proxmoxLxcCreateCmd.Flags().Bool("start", true, "Start after create")
 	proxmoxLxcCreateCmd.Flags().Bool("console", true, "Attach console")
 }
