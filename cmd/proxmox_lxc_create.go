@@ -884,8 +884,11 @@ if ! command -v sudo >/dev/null 2>&1; then
 fi
 admin_user=` + adminUser + `
 admin_uid=` + adminUID + `
+user_home_from_passwd() {
+	awk -F: -v user="$1" '$1 == user {print $6; exit}' /etc/passwd
+}
 if id "$admin_user" >/dev/null 2>&1; then
-	admin_home=$(getent passwd "$admin_user" | awk -F: '{print $6}')
+	admin_home=$(user_home_from_passwd "$admin_user")
 else
 	admin_shell=/bin/sh
 	[ -x /bin/bash ] && admin_shell=/bin/bash
@@ -897,7 +900,7 @@ else
 		echo "no supported user creation command found" >&2
 		exit 1
 	fi
-	admin_home=$(getent passwd "$admin_user" | awk -F: '{print $6}')
+	admin_home=$(user_home_from_passwd "$admin_user")
 fi
 [ -n "$admin_home" ] || admin_home="/home/$admin_user"
 install -d -m 0755 /etc/sudoers.d
