@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/babbage88/goph/v2"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 )
 
 func buildPostgresURL(host string, port int, dbname, username, password string) string {
@@ -107,7 +107,7 @@ func maybeBuildRemoteGooseyBinary(gooseyPath string, buildRemote bool, goos, goa
 	return tmpPath, cleanup, nil
 }
 
-func runGooseyBinaryRemote(sshClient *goph.Client, gooseyPath, dbURL string) error {
+func runGooseyBinaryRemote(sshClient infraSSH.Client, gooseyPath, dbURL string) error {
 	gooseyPath = expandPath(gooseyPath)
 	if gooseyPath == "" {
 		return nil

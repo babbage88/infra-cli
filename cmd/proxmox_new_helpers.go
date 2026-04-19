@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/babbage88/infra-cli/tui"
 )
 
@@ -75,12 +75,12 @@ var (
 	proxmoxNewTokenFlags proxmoxNewTokenOptions
 )
 
-func initializeProxmoxAdminSSH(pveNode string) (*goph.Client, error) {
+func initializeProxmoxAdminSSH(pveNode string) (infraSSH.Client, error) {
 	sshClient, _, err := initializeRootSSHClient(strings.TrimSpace(pveNode), "root")
 	return sshClient, err
 }
 
-func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions) (bool, error) {
+func createProxmoxUserOverSSH(sshClient infraSSH.Client, cfg proxmoxNewUserOptions) (bool, error) {
 	userID := fmt.Sprintf("%s@%s", strings.TrimSpace(cfg.Username), strings.TrimSpace(cfg.Realm))
 	exists, err := proxmoxUserExistsOverSSH(sshClient, userID)
 	if err != nil {
@@ -113,7 +113,7 @@ func createProxmoxUserOverSSH(sshClient *goph.Client, cfg proxmoxNewUserOptions)
 	return true, nil
 }
 
-func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOptions) (proxmoxCreatedToken, error) {
+func createProxmoxAPITokenOverSSH(sshClient infraSSH.Client, cfg proxmoxNewTokenOptions) (proxmoxCreatedToken, error) {
 	exists, err := proxmoxTokenExistsOverSSH(sshClient, cfg.UserID, cfg.TokenID)
 	if err != nil {
 		return proxmoxCreatedToken{}, fmt.Errorf("check whether API token %s!%s exists: %w", cfg.UserID, cfg.TokenID, err)
@@ -178,7 +178,7 @@ func createProxmoxAPITokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOpt
 	return createdToken, nil
 }
 
-func ensureInfractlRolesForTokenOverSSH(sshClient *goph.Client, cfg proxmoxNewTokenOptions) (string, string, error) {
+func ensureInfractlRolesForTokenOverSSH(sshClient infraSSH.Client, cfg proxmoxNewTokenOptions) (string, string, error) {
 	if cfg.Yolo {
 		return "", "", nil
 	}
@@ -225,7 +225,7 @@ func infractlManagerPrivileges() []string {
 	}
 }
 
-func ensureProxmoxRoleOverSSH(sshClient *goph.Client, roleName string, privs []string) error {
+func ensureProxmoxRoleOverSSH(sshClient infraSSH.Client, roleName string, privs []string) error {
 	privs = dedupeAndSortStrings(privs)
 	privString := strings.Join(privs, " ")
 	if _, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "modify", roleName, "--privs", privString); err == nil {
@@ -236,7 +236,7 @@ func ensureProxmoxRoleOverSSH(sshClient *goph.Client, roleName string, privs []s
 	return err
 }
 
-func discoverAllAvailablePrivilegesOverSSH(sshClient *goph.Client) ([]string, error) {
+func discoverAllAvailablePrivilegesOverSSH(sshClient infraSSH.Client) ([]string, error) {
 	roleInfos, err := listProxmoxRolesOverSSH(sshClient)
 	if err != nil {
 		return nil, err
@@ -250,7 +250,7 @@ func discoverAllAvailablePrivilegesOverSSH(sshClient *goph.Client) ([]string, er
 	return dedupeAndSortStrings(privs), nil
 }
 
-func assignRoleToProxmoxPrincipalOverSSH(sshClient *goph.Client, aclPath, principalKind, principalID, roleName string) error {
+func assignRoleToProxmoxPrincipalOverSSH(sshClient infraSSH.Client, aclPath, principalKind, principalID, roleName string) error {
 	args := []string{"pveum", "aclmod", aclPath, "-role", roleName}
 	switch principalKind {
 	case "token":
@@ -262,7 +262,7 @@ func assignRoleToProxmoxPrincipalOverSSH(sshClient *goph.Client, aclPath, princi
 	return err
 }
 
-func proxmoxUserExistsOverSSH(sshClient *goph.Client, userID string) (bool, error) {
+func proxmoxUserExistsOverSSH(sshClient infraSSH.Client, userID string) (bool, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "list", "--output-format", "json")
 	if err != nil {
 		return false, err
@@ -282,7 +282,7 @@ func proxmoxUserExistsOverSSH(sshClient *goph.Client, userID string) (bool, erro
 	return false, nil
 }
 
-func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (bool, error) {
+func proxmoxTokenExistsOverSSH(sshClient infraSSH.Client, userID, tokenID string) (bool, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "list", userID, "--output-format", "json")
 	if err != nil {
 		return proxmoxTokenExistsFallbackOverSSH(sshClient, userID, tokenID)
@@ -302,7 +302,7 @@ func proxmoxTokenExistsOverSSH(sshClient *goph.Client, userID, tokenID string) (
 	return false, nil
 }
 
-func proxmoxTokenExistsFallbackOverSSH(sshClient *goph.Client, userID, tokenID string) (bool, error) {
+func proxmoxTokenExistsFallbackOverSSH(sshClient infraSSH.Client, userID, tokenID string) (bool, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "list", userID)
 	if err == nil {
 		if proxmoxTokenListContainsToken(string(out), tokenID) {
@@ -337,17 +337,17 @@ func proxmoxTokenListContainsToken(output, tokenID string) bool {
 	return false
 }
 
-func deleteProxmoxUserOverSSH(sshClient *goph.Client, userID string) error {
+func deleteProxmoxUserOverSSH(sshClient infraSSH.Client, userID string) error {
 	_, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "delete", userID)
 	return err
 }
 
-func deleteProxmoxAPITokenOverSSH(sshClient *goph.Client, userID, tokenID string) error {
+func deleteProxmoxAPITokenOverSSH(sshClient infraSSH.Client, userID, tokenID string) error {
 	_, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "delete", userID, tokenID)
 	return err
 }
 
-func runRemoteQuotedCommand(sshClient *goph.Client, args ...string) ([]byte, error) {
+func runRemoteQuotedCommand(sshClient infraSSH.Client, args ...string) ([]byte, error) {
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
 		quoted = append(quoted, shellQuote(arg))
@@ -434,7 +434,7 @@ func extractJSONObjectFromOutput(output string) string {
 	return strings.TrimSpace(output[start : end+1])
 }
 
-func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
+func listProxmoxRolesOverSSH(sshClient infraSSH.Client) ([]proxmoxRoleInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "list", "--output-format", "json")
 	if err != nil {
 		return listProxmoxRolesFallbackOverSSH(sshClient)
@@ -458,7 +458,7 @@ func listProxmoxRolesOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) 
 	return roles, nil
 }
 
-func listProxmoxACLsOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
+func listProxmoxACLsOverSSH(sshClient infraSSH.Client) ([]proxmoxACLInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "acl", "list", "--output-format", "json")
 	if err != nil {
 		return listProxmoxACLsFallbackOverSSH(sshClient)
@@ -490,7 +490,7 @@ func listProxmoxACLsOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
 	return acls, nil
 }
 
-func listProxmoxRolesFallbackOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo, error) {
+func listProxmoxRolesFallbackOverSSH(sshClient infraSSH.Client) ([]proxmoxRoleInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "role", "list")
 	if err != nil {
 		return nil, fmt.Errorf("list proxmox roles via plain-text fallback: %w", err)
@@ -531,7 +531,7 @@ func listProxmoxRolesFallbackOverSSH(sshClient *goph.Client) ([]proxmoxRoleInfo,
 	return roles, nil
 }
 
-func listProxmoxACLsFallbackOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, error) {
+func listProxmoxACLsFallbackOverSSH(sshClient infraSSH.Client) ([]proxmoxACLInfo, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "acl", "list")
 	if err != nil {
 		return nil, fmt.Errorf("list proxmox ACLs via plain-text fallback: %w", err)
@@ -578,7 +578,7 @@ func listProxmoxACLsFallbackOverSSH(sshClient *goph.Client) ([]proxmoxACLInfo, e
 	return acls, nil
 }
 
-func inspectProxmoxAuthOverSSH(sshClient *goph.Client, userID, tokenFullID string) ([]string, []string, error) {
+func inspectProxmoxAuthOverSSH(sshClient infraSSH.Client, userID, tokenFullID string) ([]string, []string, error) {
 	roleInfos, err := listProxmoxRolesOverSSH(sshClient)
 	if err != nil {
 		return nil, nil, err
@@ -608,7 +608,7 @@ func inspectProxmoxAuthOverSSH(sshClient *goph.Client, userID, tokenFullID strin
 	return mapKeysSorted(roleSet), mapKeysSorted(privSet), nil
 }
 
-func verifyProxmoxTokenCoversInfraCtlCommands(sshClient *goph.Client, cfg proxmoxNewTokenOptions, createdToken proxmoxCreatedToken) (*proxmoxTokenVerification, error) {
+func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg proxmoxNewTokenOptions, createdToken proxmoxCreatedToken) (*proxmoxTokenVerification, error) {
 	assignedRoles, assignedPrivs, err := inspectProxmoxAuthOverSSH(sshClient, cfg.UserID, createdToken.FullTokenID)
 	if err != nil {
 		return nil, fmt.Errorf("inspect assigned ACLs and roles: %w", err)

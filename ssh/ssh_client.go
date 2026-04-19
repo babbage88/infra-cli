@@ -25,6 +25,20 @@ type RemoteAppDeploymentAgent struct {
 	RemoteCommand       *goph.Cmd         `json:"remoteCommands"`
 }
 
+type Runner interface {
+	Run(cmd string) ([]byte, error)
+}
+
+type Uploader interface {
+	Upload(srcPath, dstPath string) error
+}
+
+type Client interface {
+	Runner
+	Uploader
+	Close() error
+}
+
 type PublicKeyOption struct {
 	Path    string
 	Content string

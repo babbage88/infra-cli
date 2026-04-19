@@ -16,7 +16,6 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/babbage88/infra-cli/tui"
@@ -1018,11 +1017,7 @@ func forceLxcSSHReadinessWithLog(req *proxmox.LxcContainer, options lxcSSHForceO
 	return ipAddr, nil
 }
 
-func detectLxcOSTypeOverSSH(sshClient *goph.Client, vmid int) (string, error) {
-	return detectLxcOSTypeOverSSHWithLog(sshClient, vmid, nil)
-}
-
-func detectLxcOSTypeOverSSHWithLog(sshClient *goph.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
+func detectLxcOSTypeOverSSHWithLog(sshClient infraSSH.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
 	script := `if [ -r /etc/os-release ]; then . /etc/os-release; printf '%s' "${PRETTY_NAME:-${ID:-unknown}}"; else uname -s; fi`
 	out, err := runPctExecShellScriptWithLog(sshClient, vmid, script, log)
 	if err != nil {
@@ -1036,11 +1031,11 @@ func detectLxcOSTypeOverSSHWithLog(sshClient *goph.Client, vmid int, log lxcSSHF
 	return osInfo, nil
 }
 
-func ensureLxcSSHServerAndUsersOverSSH(sshClient *goph.Client, vmid int, publicKeys []string, options lxcSSHForceOptions) error {
+func ensureLxcSSHServerAndUsersOverSSH(sshClient infraSSH.Client, vmid int, publicKeys []string, options lxcSSHForceOptions) error {
 	return ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient, vmid, publicKeys, options, nil)
 }
 
-func ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient *goph.Client, vmid int, publicKeys []string, options lxcSSHForceOptions, log lxcSSHForceLogSink) error {
+func ensureLxcSSHServerAndUsersOverSSHWithLog(sshClient infraSSH.Client, vmid int, publicKeys []string, options lxcSSHForceOptions, log lxcSSHForceLogSink) error {
 	keys := sanitizeSSHPublicKeys(publicKeys)
 	if len(keys) == 0 {
 		return fmt.Errorf("no usable SSH public keys were provided")
@@ -1231,11 +1226,11 @@ func sanitizeSSHPublicKeys(keys []string) []string {
 	return sanitized
 }
 
-func runPctExecShellScript(sshClient *goph.Client, vmid int, script string) ([]byte, error) {
+func runPctExecShellScript(sshClient infraSSH.Client, vmid int, script string) ([]byte, error) {
 	return runPctExecShellScriptWithLog(sshClient, vmid, script, nil)
 }
 
-func runPctExecShellScriptWithLog(sshClient *goph.Client, vmid int, script string, log lxcSSHForceLogSink) ([]byte, error) {
+func runPctExecShellScriptWithLog(sshClient infraSSH.Client, vmid int, script string, log lxcSSHForceLogSink) ([]byte, error) {
 	command := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(script)
 	out, err := sshClient.Run("sh -c " + shellQuote(command))
 	lxcSSHForceCommandOutput(log, fmt.Sprintf("pct exec %d", vmid), out)
@@ -1245,7 +1240,7 @@ func runPctExecShellScriptWithLog(sshClient *goph.Client, vmid int, script strin
 	return out, nil
 }
 
-func runRemoteQuotedCommandWithLog(sshClient *goph.Client, log lxcSSHForceLogSink, args ...string) ([]byte, error) {
+func runRemoteQuotedCommandWithLog(sshClient infraSSH.Client, log lxcSSHForceLogSink, args ...string) ([]byte, error) {
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
 		quoted = append(quoted, shellQuote(arg))
@@ -1326,11 +1321,11 @@ func verifyCreatedLxcContainer(req *proxmox.LxcContainer, sshUser string, sshPor
 	return fmt.Errorf("container %d booted but SSH was not reachable from either vantage point: %s", req.VmId, strings.Join(verificationErrors, "; "))
 }
 
-func waitForLxcRunningOverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) error {
+func waitForLxcRunningOverSSH(sshClient infraSSH.Client, vmid int, timeout time.Duration) error {
 	return waitForLxcRunningOverSSHWithLog(sshClient, vmid, timeout, nil)
 }
 
-func waitForLxcRunningOverSSHWithLog(sshClient *goph.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) error {
+func waitForLxcRunningOverSSHWithLog(sshClient infraSSH.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) error {
 	deadline := time.Now().Add(timeout)
 	lxcSSHForceStatusf(log, "Waiting for container %d to report running status...", vmid)
 	for {
@@ -1349,11 +1344,11 @@ func waitForLxcRunningOverSSHWithLog(sshClient *goph.Client, vmid int, timeout t
 	}
 }
 
-func waitForLxcIPv4OverSSH(sshClient *goph.Client, vmid int, timeout time.Duration) (string, error) {
+func waitForLxcIPv4OverSSH(sshClient infraSSH.Client, vmid int, timeout time.Duration) (string, error) {
 	return waitForLxcIPv4OverSSHWithLog(sshClient, vmid, timeout, nil)
 }
 
-func waitForLxcIPv4OverSSHWithLog(sshClient *goph.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) (string, error) {
+func waitForLxcIPv4OverSSHWithLog(sshClient infraSSH.Client, vmid int, timeout time.Duration, log lxcSSHForceLogSink) (string, error) {
 	deadline := time.Now().Add(timeout)
 	lxcSSHForceStatusf(log, "Waiting for container %d to report an IPv4 address...", vmid)
 	for {
@@ -1371,11 +1366,11 @@ func waitForLxcIPv4OverSSHWithLog(sshClient *goph.Client, vmid int, timeout time
 	}
 }
 
-func getLxcPrimaryIPv4OverSSH(sshClient *goph.Client, vmid int) (string, error) {
+func getLxcPrimaryIPv4OverSSH(sshClient infraSSH.Client, vmid int) (string, error) {
 	return getLxcPrimaryIPv4OverSSHWithLog(sshClient, vmid, nil)
 }
 
-func getLxcPrimaryIPv4OverSSHWithLog(sshClient *goph.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
+func getLxcPrimaryIPv4OverSSHWithLog(sshClient infraSSH.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
 	out, err := runPctExecShellScriptWithLog(sshClient, vmid, `hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`, log)
 	if err != nil {
 		return "", err
@@ -1432,7 +1427,7 @@ func verifyLxcSSHFromLocalMachine(ipAddr, sshUser string, sshPort uint) error {
 	return nil
 }
 
-func verifyLxcSSHFromProxmoxNode(sshClient *goph.Client, ipAddr string, sshPort uint) error {
+func verifyLxcSSHFromProxmoxNode(sshClient infraSSH.Client, ipAddr string, sshPort uint) error {
 	if sshPort == 0 {
 		sshPort = 22
 	}

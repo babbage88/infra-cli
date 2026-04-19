@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/babbage88/goph/v2"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 )
 
@@ -47,7 +46,7 @@ func resolveRootSSHOptions(defaultHost, defaultUser string) (rootSSHOptions, err
 	return opts, nil
 }
 
-func initializeRootSSHClient(defaultHost, defaultUser string) (*goph.Client, rootSSHOptions, error) {
+func initializeRootSSHClient(defaultHost, defaultUser string) (infraSSH.Client, rootSSHOptions, error) {
 	opts, err := resolveRootSSHOptions(defaultHost, defaultUser)
 	if err != nil {
 		return nil, opts, err

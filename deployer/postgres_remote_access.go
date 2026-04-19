@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/babbage88/goph/v2"
+	infraSSH "github.com/babbage88/infra-cli/ssh"
 )
 
-func ConfigureRemotePostgresAccess(sshClient *goph.Client, hbaCIDR, authMethod, listenAddresses string) error {
+func ConfigureRemotePostgresAccess(sshClient infraSSH.Client, hbaCIDR, authMethod, listenAddresses string) error {
 	findCmd := `find /etc/postgresql /etc/postgresql/*/main /var/lib/pgsql /var/lib/postgresql /var/lib/postgres -type f \( -name "postgresql.conf" -o -name "pg_hba.conf" \) 2>/dev/null`
 	out, err := sshClient.Run(findCmd)
 
@@ -70,7 +70,7 @@ func ConfigureRemotePostgresAccess(sshClient *goph.Client, hbaCIDR, authMethod, 
 	return restartRemotePostgresService(sshClient, postgresqlConfPath)
 }
 
-func restartRemotePostgresService(sshClient *goph.Client, postgresqlConfPath string) error {
+func restartRemotePostgresService(sshClient infraSSH.Client, postgresqlConfPath string) error {
 	dataDir := filepath.ToSlash(filepath.Dir(postgresqlConfPath))
 	versionCandidate := ""
 	parts := strings.Split(dataDir, "/")

@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/deployer"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/babbage88/infra-cli/tui"
@@ -18,7 +17,7 @@ import (
 )
 
 // execSQLViaSsh executes a SQL statement on a remote PostgreSQL instance via SSH with sudo
-func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
+func execSQLViaSsh(sshClient infraSSH.Client, pgUser, dbname, stmt string) error {
 	cmdStr := buildRemotePsqlCommand(pgUser, dbname, stmt, false)
 
 	out, err := sshClient.Run(cmdStr)
@@ -28,7 +27,7 @@ func execSQLViaSsh(sshClient *goph.Client, pgUser, dbname, stmt string) error {
 	return nil
 }
 
-func execSQLViaSshBool(sshClient *goph.Client, pgUser, dbname, stmt string) (bool, error) {
+func execSQLViaSshBool(sshClient infraSSH.Client, pgUser, dbname, stmt string) (bool, error) {
 	cmdStr := buildRemotePsqlCommand(pgUser, dbname, stmt, true)
 
 	out, err := sshClient.Run(cmdStr)
@@ -68,7 +67,7 @@ func buildRemotePsqlCommand(pgUser, dbname, stmt string, tuplesOnly bool) string
 	return strings.Join(quoted, " ")
 }
 
-func dropAndRecreateDatabaseViaSSH(sshClient *goph.Client, pgUser, dbname string) error {
+func dropAndRecreateDatabaseViaSSH(sshClient infraSSH.Client, pgUser, dbname string) error {
 	statements := []string{
 		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid();`, pq.QuoteLiteral(dbname)),
 		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, pq.QuoteIdentifier(dbname)),
