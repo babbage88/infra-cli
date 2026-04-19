@@ -15,10 +15,13 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/babbage88/goph/v2"
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
 	"github.com/babbage88/infra-cli/tui"
+	"github.com/charmbracelet/glamour"
+	glamansi "github.com/charmbracelet/glamour/ansi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
