@@ -41,6 +41,11 @@ type lxcSSHForceOptions struct {
 	AdminUID     int
 }
 
+const (
+	lxcPctExecProbeTimeout      = 15 * time.Second
+	lxcPctExecNetworkingTimeout = 45 * time.Second
+)
+
 var proxmoxLxcCreateCmd = &cobra.Command{
 	Use:     "create",
 	Aliases: []string{"new-lxc", "create-lxc", "new"},
@@ -790,7 +795,7 @@ func (m lxcSSHForceViewportModel) View() tea.View {
 		doneText := "SSH readiness completed successfully. Press enter, q, or esc to continue."
 		doneStyle := lxcSSHForceDonePromptStyle
 		if m.err != nil {
-			doneText = "SSH readiness failed: " + m.err.Error() + " Press enter, q, or esc to continue."
+			doneText = "SSH readiness failed: " + lxcSSHForcePromptError(m.err, m.viewport.Width()) + " Press enter, q, or esc to continue."
 			doneStyle = lxcSSHForceErrorPromptStyle
 		}
 		donePrompt = "\n" + doneStyle.Render(doneText)
@@ -925,6 +930,24 @@ func truncatePlain(value string, width int) string {
 	return value[:width-1] + "…"
 }
 
+func lxcSSHForcePromptError(err error, width int) string {
+	if err == nil {
+		return ""
+	}
+	value := tui.CleanTerminalLogText(err.Error())
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return "unknown error."
+	}
+
+	const suffix = " See stdout/stderr above."
+	maxWidth := max(48, width-len("SSH readiness failed:  Press enter, q, or esc to continue."))
+	if len(value)+len(suffix) > maxWidth {
+		value = truncatePlain(value, max(16, maxWidth-len(suffix)))
+	}
+	return value + suffix
+}
+
 func padPlainRight(value string, width int) string {
 	if len(value) >= width {
 		return value
@@ -1000,6 +1023,10 @@ func forceLxcSSHReadinessWithLog(req *proxmox.LxcContainer, options lxcSSHForceO
 	}
 	lxcSSHForceStatusf(log, "Container %d OS: %s.", req.VmId, osInfo)
 
+	if err := ensureLxcNetworkingStartedOverSSHWithLog(sshClient, req.VmId, log); err != nil {
+		return "", err
+	}
+
 	ipAddr, err := waitForLxcIPv4OverSSHWithLog(sshClient, req.VmId, 3*time.Minute, log)
 	if err != nil {
 		return "", err
@@ -1029,6 +1056,62 @@ func detectLxcOSTypeOverSSHWithLog(sshClient infraSSH.Client, vmid int, log lxcS
 		return "unknown", nil
 	}
 	return osInfo, nil
+}
+
+func ensureLxcNetworkingStartedOverSSHWithLog(sshClient infraSSH.Client, vmid int, log lxcSSHForceLogSink) error {
+	lxcSSHForceStatusf(log, "Ensuring container %d networking is started...", vmid)
+	if _, err := runPctExecShellScriptWithTimeoutAndLog(sshClient, vmid, lxcNetworkingBootstrapScript(), lxcPctExecNetworkingTimeout, log); err != nil {
+		return fmt.Errorf("ensure networking is started in container %d: %w", vmid, err)
+	}
+	return nil
+}
+
+func lxcNetworkingBootstrapScript() string {
+	return `log_step() {
+	printf 'infractl: %s\n' "$*"
+}
+has_ipv4() {
+	if command -v ip >/dev/null 2>&1; then
+		ip -4 -o addr show scope global 2>/dev/null | awk '{split($4, a, "/"); if (a[1] !~ /^127\./) {found=1}} END {exit found ? 0 : 1}'
+	elif command -v ifconfig >/dev/null 2>&1; then
+		ifconfig 2>/dev/null | awk '/inet / && $0 !~ /127\.0\.0\.1/ {found=1} END {exit found ? 0 : 1}'
+	else
+		return 1
+	fi
+}
+non_loopback_interfaces() {
+	for iface in /sys/class/net/*; do
+		[ -e "$iface" ] || continue
+		iface=${iface##*/}
+		[ "$iface" = "lo" ] && continue
+		printf '%s\n' "$iface"
+	done
+}
+if has_ipv4; then
+	log_step "network already has IPv4"
+	exit 0
+fi
+if command -v ip >/dev/null 2>&1; then
+	for iface in $(non_loopback_interfaces); do
+		ip link set "$iface" up >/dev/null 2>&1 || true
+	done
+fi
+if command -v ifup >/dev/null 2>&1; then
+	log_step "starting configured interfaces with ifup"
+	ifup -a >/dev/null 2>&1 || for iface in $(non_loopback_interfaces); do ifup "$iface" >/dev/null 2>&1 || true; done
+fi
+if ! has_ipv4 && command -v rc-service >/dev/null 2>&1; then
+	log_step "starting OpenRC networking"
+	rc-service networking start >/dev/null 2>&1 || rc-service networking restart >/dev/null 2>&1 || true
+fi
+if ! has_ipv4 && command -v udhcpc >/dev/null 2>&1; then
+	for iface in $(non_loopback_interfaces); do
+		log_step "requesting DHCP lease on $iface"
+		udhcpc -q -n -i "$iface" -t 5 >/dev/null 2>&1 || true
+		has_ipv4 && break
+	done
+fi
+has_ipv4 || true`
 }
 
 func ensureLxcSSHServerAndUsersOverSSH(sshClient infraSSH.Client, vmid int, publicKeys []string, options lxcSSHForceOptions) error {
@@ -1150,12 +1233,18 @@ if ! pgrep -x sshd >/dev/null 2>&1; then
 fi
 if ! pgrep -x sshd >/dev/null 2>&1; then
 	log_step "starting sshd directly"
-	if command -v sshd >/dev/null 2>&1; then
-		sshd
-	elif [ -x /usr/sbin/sshd ]; then
+	if [ -x /usr/sbin/sshd ]; then
 		/usr/sbin/sshd
 	elif [ -x /usr/local/sbin/sshd ]; then
 		/usr/local/sbin/sshd
+	else
+		sshd_path=$(command -v sshd 2>/dev/null || true)
+		if [ -n "$sshd_path" ]; then
+			case "$sshd_path" in
+				/*) "$sshd_path" ;;
+				*) echo "sshd executable was found at non-absolute path $sshd_path" >&2; exit 1 ;;
+			esac
+		fi
 	fi
 fi
 log_step "verifying SSH daemon"
@@ -1231,7 +1320,14 @@ func runPctExecShellScript(sshClient infraSSH.Client, vmid int, script string) (
 }
 
 func runPctExecShellScriptWithLog(sshClient infraSSH.Client, vmid int, script string, log lxcSSHForceLogSink) ([]byte, error) {
+	return runPctExecShellScriptWithTimeoutAndLog(sshClient, vmid, script, 0, log)
+}
+
+func runPctExecShellScriptWithTimeoutAndLog(sshClient infraSSH.Client, vmid int, script string, timeout time.Duration, log lxcSSHForceLogSink) ([]byte, error) {
 	command := `pct exec ` + shellQuote(fmt.Sprintf("%d", vmid)) + ` -- sh -lc ` + shellQuote(script)
+	if timeout > 0 {
+		command = `if command -v timeout >/dev/null 2>&1; then timeout ` + shellQuote(fmt.Sprintf("%.0fs", timeout.Seconds())) + ` ` + command + `; else ` + command + `; fi`
+	}
 	out, err := sshClient.Run("sh -c " + shellQuote(command))
 	lxcSSHForceCommandOutput(log, fmt.Sprintf("pct exec %d", vmid), out)
 	if err != nil {
@@ -1356,6 +1452,10 @@ func waitForLxcIPv4OverSSHWithLog(sshClient infraSSH.Client, vmid int, timeout t
 		if err == nil && ipAddr != "" {
 			return ipAddr, nil
 		}
+		statusOut, statusErr := runRemoteQuotedCommandWithLog(sshClient, log, "pct", "status", fmt.Sprintf("%d", vmid))
+		if statusErr == nil && !strings.Contains(strings.ToLower(string(statusOut)), "status: running") {
+			return "", fmt.Errorf("container %d stopped while waiting for IPv4; latest status was %q", vmid, strings.TrimSpace(string(statusOut)))
+		}
 		if time.Now().After(deadline) {
 			if err != nil {
 				return "", fmt.Errorf("timed out waiting for IPv4 on container %d: %w", vmid, err)
@@ -1371,7 +1471,7 @@ func getLxcPrimaryIPv4OverSSH(sshClient infraSSH.Client, vmid int) (string, erro
 }
 
 func getLxcPrimaryIPv4OverSSHWithLog(sshClient infraSSH.Client, vmid int, log lxcSSHForceLogSink) (string, error) {
-	out, err := runPctExecShellScriptWithLog(sshClient, vmid, `hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ {print $1; exit}'`, log)
+	out, err := runPctExecShellScriptWithTimeoutAndLog(sshClient, vmid, lxcPrimaryIPv4Script(), lxcPctExecProbeTimeout, log)
 	if err != nil {
 		return "", err
 	}
@@ -1384,6 +1484,20 @@ func getLxcPrimaryIPv4OverSSHWithLog(sshClient infraSSH.Client, vmid int, log lx
 		return "", fmt.Errorf("container reported an invalid IPv4 address %q", ipAddr)
 	}
 	return ipAddr, nil
+}
+
+func lxcPrimaryIPv4Script() string {
+	return `ip_addr=""
+if command -v ip >/dev/null 2>&1; then
+	ip_addr=$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4, a, "/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')
+fi
+if [ -z "$ip_addr" ] && command -v hostname >/dev/null 2>&1; then
+	ip_addr=$(hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ && $1 !~ /^127\./ {print $1; exit}')
+fi
+if [ -z "$ip_addr" ] && command -v ifconfig >/dev/null 2>&1; then
+	ip_addr=$(ifconfig 2>/dev/null | awk '/inet / {for (i = 1; i <= NF; i++) {if ($i == "inet") ip=$(i+1); else if ($i ~ /^addr:/) {ip=$i; sub(/^addr:/, "", ip)}; if (ip !~ /^127\./ && ip ~ /^[0-9]+\./) {print ip; exit}}}')
+fi
+printf '%s' "$ip_addr"`
 }
 
 func verifyLxcSSHFromLocalMachine(ipAddr, sshUser string, sshPort uint) error {
