@@ -763,10 +763,22 @@ func detectLxcOSTypeOverSSH(sshClient *goph.Client, vmid int) (string, error) {
 	return osInfo, nil
 }
 
-func ensureLxcSSHServerAndRootKeysOverSSH(sshClient *goph.Client, vmid int, publicKeys []string) error {
+func ensureLxcSSHServerAndUsersOverSSH(sshClient *goph.Client, vmid int, publicKeys []string, options lxcSSHForceOptions) error {
 	keys := sanitizeSSHPublicKeys(publicKeys)
 	if len(keys) == 0 {
 		return fmt.Errorf("no usable SSH public keys were provided")
+	}
+	if options.AddAdminUser {
+		options.AdminUser = strings.TrimSpace(options.AdminUser)
+		if options.AdminUser == "" {
+			return fmt.Errorf("--admin-username is required when --add-admin-user is set")
+		}
+		if strings.ContainsAny(options.AdminUser, "\r\n:/'\"`$\\ ") {
+			return fmt.Errorf("admin username %q contains unsupported characters", options.AdminUser)
+		}
+		if options.AdminUID <= 0 {
+			return fmt.Errorf("--admin-uid must be greater than zero when --add-admin-user is set")
+		}
 	}
 
 	script := `set -eu
@@ -774,34 +786,61 @@ if [ -r /etc/os-release ]; then . /etc/os-release; fi
 has_sshd() {
 	command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || [ -x /usr/local/sbin/sshd ]
 }
-if ! has_sshd; then
+install_pkg() {
 	if command -v dnf >/dev/null 2>&1; then
-		dnf -y install openssh-server
+		dnf -y install "$@"
 	elif command -v yum >/dev/null 2>&1; then
-		yum -y install openssh-server
+		yum -y install "$@"
 	elif command -v apt-get >/dev/null 2>&1; then
 		apt-get update
-		DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server
+		DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
 	elif command -v zypper >/dev/null 2>&1; then
-		zypper --non-interactive install openssh
+		zypper --non-interactive install "$@"
 	elif command -v apk >/dev/null 2>&1; then
-		apk add --no-cache openssh
+		apk add --no-cache "$@"
 	elif command -v pacman >/dev/null 2>&1; then
-		pacman -Sy --noconfirm openssh
+		pacman -Sy --noconfirm "$@"
+	else
+		echo "no supported package manager found" >&2
+		exit 1
+	fi
+}
+if ! has_sshd; then
+	if command -v dnf >/dev/null 2>&1; then
+		install_pkg openssh-server
+	elif command -v yum >/dev/null 2>&1; then
+		install_pkg openssh-server
+	elif command -v apt-get >/dev/null 2>&1; then
+		install_pkg openssh-server
+	elif command -v zypper >/dev/null 2>&1; then
+		install_pkg openssh
+	elif command -v apk >/dev/null 2>&1; then
+		install_pkg openssh
+	elif command -v pacman >/dev/null 2>&1; then
+		install_pkg openssh
 	else
 		echo "no supported package manager found to install openssh-server" >&2
 		exit 1
 	fi
 fi
-install -d -m 0700 /root/.ssh
-touch /root/.ssh/authorized_keys
-chmod 0600 /root/.ssh/authorized_keys
-while IFS= read -r key; do
-	[ -n "$key" ] || continue
-	grep -qxF "$key" /root/.ssh/authorized_keys || printf '%s\n' "$key" >> /root/.ssh/authorized_keys
-done <<'INFRACTL_SSH_KEYS'
+ensure_authorized_keys() {
+	user_name="$1"
+	user_home="$2"
+	install -d -m 0700 "$user_home/.ssh"
+	touch "$user_home/.ssh/authorized_keys"
+	chmod 0600 "$user_home/.ssh/authorized_keys"
+	while IFS= read -r key; do
+		[ -n "$key" ] || continue
+		grep -qxF "$key" "$user_home/.ssh/authorized_keys" || printf '%s\n' "$key" >> "$user_home/.ssh/authorized_keys"
+	done <<'INFRACTL_SSH_KEYS'
 ` + strings.Join(keys, "\n") + `
 INFRACTL_SSH_KEYS
+	if [ "$user_name" != "root" ]; then
+		chown -R "$user_name:$user_name" "$user_home/.ssh" 2>/dev/null || chown -R "$user_name" "$user_home/.ssh"
+	fi
+}
+ensure_authorized_keys root /root
+` + adminUserBootstrapScript(options) + `
 if command -v ssh-keygen >/dev/null 2>&1; then
 	ssh-keygen -A
 fi
@@ -825,9 +864,47 @@ fi
 pgrep -x sshd >/dev/null 2>&1`
 
 	if _, err := runPctExecShellScript(sshClient, vmid, script); err != nil {
-		return fmt.Errorf("ensure SSH server and root authorized_keys in container %d: %w", vmid, err)
+		return fmt.Errorf("ensure SSH server, users, and authorized_keys in container %d: %w", vmid, err)
 	}
 	return nil
+}
+
+func adminUserBootstrapScript(options lxcSSHForceOptions) string {
+	if !options.AddAdminUser {
+		return ""
+	}
+
+	adminUser := shellQuote(options.AdminUser)
+	adminUID := shellQuote(fmt.Sprintf("%d", options.AdminUID))
+	sudoersPath := shellQuote("/etc/sudoers.d/90-infractl-" + options.AdminUser)
+
+	return `
+if ! command -v sudo >/dev/null 2>&1; then
+	install_pkg sudo
+fi
+admin_user=` + adminUser + `
+admin_uid=` + adminUID + `
+if id "$admin_user" >/dev/null 2>&1; then
+	admin_home=$(getent passwd "$admin_user" | awk -F: '{print $6}')
+else
+	admin_shell=/bin/sh
+	[ -x /bin/bash ] && admin_shell=/bin/bash
+	if command -v useradd >/dev/null 2>&1; then
+		useradd -m -u "$admin_uid" -s "$admin_shell" "$admin_user"
+	elif command -v adduser >/dev/null 2>&1; then
+		adduser -D -u "$admin_uid" -s "$admin_shell" "$admin_user"
+	else
+		echo "no supported user creation command found" >&2
+		exit 1
+	fi
+	admin_home=$(getent passwd "$admin_user" | awk -F: '{print $6}')
+fi
+[ -n "$admin_home" ] || admin_home="/home/$admin_user"
+install -d -m 0755 /etc/sudoers.d
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$admin_user" > ` + sudoersPath + `
+chmod 0440 ` + sudoersPath + `
+ensure_authorized_keys "$admin_user" "$admin_home"
+`
 }
 
 func sanitizeSSHPublicKeys(keys []string) []string {
