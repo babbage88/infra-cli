@@ -187,12 +187,14 @@ func newSelectModel(label string, options []string, defaultValue string) selectM
 
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
+	delegate.SetSpacing(0)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("#2F6F73")).BorderLeftForeground(lipgloss.Color("#2F6F73"))
 
 	listModel := list.New(items, delegate, 80, min(14, len(options)+5))
 	listModel.Title = label
 	listModel.SetShowStatusBar(false)
-	listModel.SetShowHelp(true)
+	listModel.SetShowPagination(false)
+	listModel.SetShowHelp(false)
 	listModel.SetFilteringEnabled(false)
 	listModel.Select(defaultIndex)
 
@@ -227,7 +229,42 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m selectModel) View() tea.View {
-	return tea.NewView(m.list.View())
+	view := strings.TrimRight(m.list.View(), "\n")
+	footer := m.paginationFooter()
+	if footer != "" {
+		view += "\n" + footer
+	}
+	return tea.NewView(view)
+}
+
+func (m selectModel) paginationFooter() string {
+	total := len(m.list.VisibleItems())
+	if total == 0 {
+		return promptHelpStyle.Render("No options available.")
+	}
+
+	page := m.list.Paginator.Page
+	perPage := m.list.Paginator.PerPage
+	if perPage <= 0 {
+		perPage = total
+	}
+
+	start := page*perPage + 1
+	if start > total {
+		start = total
+	}
+	end := min(page*perPage+perPage, total)
+
+	parts := []string{fmt.Sprintf("Showing %d-%d of %d.", start, end, total)}
+	if page > 0 {
+		parts = append(parts, "more above")
+	}
+	if end < total {
+		parts = append(parts, "more below")
+	}
+	parts = append(parts, "move: up/down or j/k", "page: pgup/pgdn", "select: enter", "quit: esc/q")
+
+	return promptHelpStyle.Render(strings.Join(parts, "  "))
 }
 
 // IsInteractive reports whether stdin is attached to a terminal.
