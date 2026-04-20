@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.26.1
+ARG GO_VERSION=1.26.2
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 WORKDIR /src
 
@@ -42,4 +42,4 @@ COPY --from=build /bin/server /app/
 # Expose the port that the application listens on.
 EXPOSE 8181
 
-ENTRYPOINT [ "/app/server", "database", "db-helper-api", "--start-api=true" ]
+ENTRYPOINT [ "/app/server", "api", "serve", "--listen-address", ":8181" ]
