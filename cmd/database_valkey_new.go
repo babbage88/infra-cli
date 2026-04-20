@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/infractl_services"
 	"github.com/babbage88/infra-cli/tui"
+	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -41,28 +42,6 @@ var databaseValkeyNewCmd = &cobra.Command{
 			valkeyPassword = tui.Password("Valkey ACL password", valkeyPassword)
 		}
 
-		installer, err := deployer.NewRemoteValkeyInstallerWithSsh(
-			sshOpts.Host,
-			sshOpts.User,
-			sshOpts.KeyPath,
-			sshOpts.Passphrase,
-			sshOpts.UseAgent,
-			sshOpts.Port,
-		)
-		if err != nil {
-			slog.Error(
-				"Failed to initialize SSH client",
-				"host", sshOpts.Host,
-				"user", sshOpts.User,
-				"port", sshOpts.Port,
-				"ssh_key", sshOpts.KeyPath,
-				"use_ssh_agent", sshOpts.UseAgent,
-				"error", err.Error(),
-			)
-			os.Exit(1)
-		}
-		defer installer.SshClient.Close()
-
 		slog.Info(
 			"Ensuring Valkey is installed and configured",
 			"host", sshOpts.Host,
@@ -71,7 +50,22 @@ var databaseValkeyNewCmd = &cobra.Command{
 			"port", valkeyPort,
 		)
 
-		if err := installer.EnsureInstalledAndConfigured(valkeyUsername, valkeyPassword, valkeyBind, valkeyPort, valkeyACLFile); err != nil {
+		result, err := infractl_services.InstallValkey(coredeploy.ValkeyInstallRequest{
+			SSH: coredeploy.SSHOptions{
+				Host:       sshOpts.Host,
+				User:       sshOpts.User,
+				KeyPath:    sshOpts.KeyPath,
+				Passphrase: sshOpts.Passphrase,
+				UseAgent:   sshOpts.UseAgent,
+				Port:       sshOpts.Port,
+			},
+			Username: valkeyUsername,
+			Password: valkeyPassword,
+			Bind:     valkeyBind,
+			Port:     valkeyPort,
+			ACLFile:  valkeyACLFile,
+		})
+		if err != nil {
 			slog.Error("Failed to configure Valkey", "error", err.Error())
 			os.Exit(1)
 		}
@@ -84,10 +78,10 @@ var databaseValkeyNewCmd = &cobra.Command{
 			"port", valkeyPort,
 		)
 
-		fmt.Printf("Valkey host: %s\n", sshOpts.Host)
-		fmt.Printf("Valkey port: %d\n", valkeyPort)
-		fmt.Printf("Valkey user: %s\n", valkeyUsername)
-		fmt.Printf("Valkey URI: %s\n", buildValkeyURL(sshOpts.Host, valkeyPort, valkeyUsername, valkeyPassword))
+		fmt.Printf("Valkey host: %s\n", result.Host)
+		fmt.Printf("Valkey port: %d\n", result.Port)
+		fmt.Printf("Valkey user: %s\n", result.Username)
+		fmt.Printf("Valkey URI: %s\n", result.URI)
 	},
 }
 
@@ -110,11 +104,5 @@ func init() {
 }
 
 func buildValkeyURL(host string, port int, username, password string) string {
-	return fmt.Sprintf(
-		"redis://%s:%s@%s:%d",
-		urlQueryEscape(username),
-		urlQueryEscape(password),
-		host,
-		port,
-	)
+	return infractl_services.BuildValkeyURL(host, port, username, password)
 }
