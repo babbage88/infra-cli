@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/infractl_services"
+	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -49,47 +47,15 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 		garageMetricsToken := garageDeployViper.GetString("garage_metrics_token")
 		garageLogLevel := garageDeployViper.GetString("garage_log_level")
 
-		if garageRPCPublicAddr == "" {
-			garageRPCPublicAddr = fmt.Sprintf("%s:3901", sshOpts.Host)
-		}
-		if garageReplicationFactor <= 0 {
-			slog.Error("Invalid Garage replication factor", "replication_factor", garageReplicationFactor)
-			os.Exit(1)
-		}
-
-		if garageRPCSecret == "" {
-			garageRPCSecret = randomHexString(32)
-		}
-		if garageAdminToken == "" {
-			garageAdminToken = randomBase64String(32)
-		}
-		if garageMetricsToken == "" {
-			garageMetricsToken = randomBase64String(32)
-		}
-
-		installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-			sshOpts.Host,
-			sshOpts.User,
-			sshOpts.KeyPath,
-			sshOpts.Passphrase,
-			sshOpts.UseAgent,
-			sshOpts.Port,
-		)
-		if err != nil {
-			slog.Error(
-				"Failed to initialize SSH client",
-				"host", sshOpts.Host,
-				"user", sshOpts.User,
-				"port", sshOpts.Port,
-				"ssh_key", sshOpts.KeyPath,
-				"use_ssh_agent", sshOpts.UseAgent,
-				"error", err.Error(),
-			)
-			os.Exit(1)
-		}
-		defer installer.SshClient.Close()
-
-		cfg := deployer.GarageNodeConfig{
+		req := coredeploy.GarageNodeRequest{
+			SSH: coredeploy.SSHOptions{
+				Host:       sshOpts.Host,
+				User:       sshOpts.User,
+				KeyPath:    sshOpts.KeyPath,
+				Passphrase: sshOpts.Passphrase,
+				UseAgent:   sshOpts.UseAgent,
+				Port:       sshOpts.Port,
+			},
 			Version:           garageVersion,
 			BinaryPath:        garageBinaryPath,
 			ConfigPath:        garageConfigPath,
@@ -116,31 +82,32 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 		slog.Info(
 			"Ensuring Garage is installed and configured",
 			"host", sshOpts.Host,
-			"rpc_public_addr", garageRPCPublicAddr,
+			"rpc_public_addr", req.RPCPublicAddr,
 			"s3_api_bind_addr", garageS3BindAddr,
 			"admin_api_bind_addr", garageAdminBindAddr,
 		)
 
-		if err := installer.EnsureInstalledAndConfigured(cfg); err != nil {
+		result, err := infractl_services.DeployGarageNode(req)
+		if err != nil {
 			slog.Error("Failed to configure Garage", "error", err.Error())
 			os.Exit(1)
 		}
 
 		slog.Info(
 			"Garage installation and node deployment completed",
-			"host", sshOpts.Host,
-			"config_path", garageConfigPath,
-			"rpc_public_addr", garageRPCPublicAddr,
+			"host", result.Host,
+			"config_path", result.ConfigPath,
+			"rpc_public_addr", result.RPCPublicAddr,
 		)
 
-		fmt.Printf("Garage binary: %s\n", garageBinaryPath)
-		fmt.Printf("Garage config: %s\n", garageConfigPath)
-		fmt.Printf("Garage service: garage\n")
-		fmt.Printf("Garage RPC public address: %s\n", garageRPCPublicAddr)
-		fmt.Printf("Garage S3 endpoint: http://%s\n", garageS3BindAddrToAdvertised(sshOpts.Host, garageS3BindAddr))
-		fmt.Printf("Garage admin endpoint: http://%s\n", garageBindAddrToAdvertised(sshOpts.Host, garageAdminBindAddr))
-		fmt.Printf("Garage admin token: %s\n", garageAdminToken)
-		fmt.Printf("Garage metrics token: %s\n", garageMetricsToken)
+		fmt.Printf("Garage binary: %s\n", result.BinaryPath)
+		fmt.Printf("Garage config: %s\n", result.ConfigPath)
+		fmt.Printf("Garage service: %s\n", result.ServiceName)
+		fmt.Printf("Garage RPC public address: %s\n", result.RPCPublicAddr)
+		fmt.Printf("Garage S3 endpoint: %s\n", result.S3Endpoint)
+		fmt.Printf("Garage admin endpoint: %s\n", result.AdminEndpoint)
+		fmt.Printf("Garage admin token: %s\n", result.AdminToken)
+		fmt.Printf("Garage metrics token: %s\n", result.MetricsToken)
 	},
 }
 
@@ -192,46 +159,4 @@ func init() {
 	garageDeployViper.BindPFlag("garage_admin_token", storageS3DeployGarageNodeCmd.Flags().Lookup("garage-admin-token"))
 	garageDeployViper.BindPFlag("garage_metrics_token", storageS3DeployGarageNodeCmd.Flags().Lookup("garage-metrics-token"))
 	garageDeployViper.BindPFlag("garage_log_level", storageS3DeployGarageNodeCmd.Flags().Lookup("garage-log-level"))
-}
-
-func randomHexString(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := rand.Read(buf); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(buf)
-}
-
-func randomBase64String(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := rand.Read(buf); err != nil {
-		panic(err)
-	}
-	return base64.StdEncoding.EncodeToString(buf)
-}
-
-func garageBindAddrToAdvertised(host, bindAddr string) string {
-	switch bindAddr {
-	case "", "[::]:3903", "0.0.0.0:3903":
-		return fmt.Sprintf("%s:3903", host)
-	case "[::]:3900", "0.0.0.0:3900":
-		return fmt.Sprintf("%s:3900", host)
-	case "[::]:3901", "0.0.0.0:3901":
-		return fmt.Sprintf("%s:3901", host)
-	case "[::]:3902", "0.0.0.0:3902":
-		return fmt.Sprintf("%s:3902", host)
-	case "[::]:3904", "0.0.0.0:3904":
-		return fmt.Sprintf("%s:3904", host)
-	default:
-		return bindAddr
-	}
-}
-
-func garageS3BindAddrToAdvertised(host, bindAddr string) string {
-	switch bindAddr {
-	case "", "[::]:3900", "0.0.0.0:3900":
-		return fmt.Sprintf("%s:3900", host)
-	default:
-		return bindAddr
-	}
 }
