@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -402,15 +403,51 @@ func randSerialNumber() (*big.Int, error) {
 }
 
 func addSANs(tmpl *x509.Certificate, sans []string) {
+	seenDNSNames := make(map[string]struct{})
+	seenIPAddresses := make(map[string]struct{})
+
 	for _, san := range sans {
-		san = strings.TrimSpace(san)
+		san = normalizeSANHost(strings.TrimSpace(san))
 		if san == "" {
 			continue
 		}
 		if ip := net.ParseIP(san); ip != nil {
+			key := ip.String()
+			if _, ok := seenIPAddresses[key]; ok {
+				continue
+			}
+			seenIPAddresses[key] = struct{}{}
 			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
 		} else {
+			if _, ok := seenDNSNames[san]; ok {
+				continue
+			}
+			seenDNSNames[san] = struct{}{}
 			tmpl.DNSNames = append(tmpl.DNSNames, san)
 		}
 	}
+}
+
+func normalizeSANHost(san string) string {
+	if san == "" {
+		return ""
+	}
+	if parsedURL, err := url.Parse(san); err == nil && parsedURL.Hostname() != "" {
+		return parsedURL.Hostname()
+	}
+	if ip := net.ParseIP(san); ip != nil {
+		return ip.String()
+	}
+	if host, _, err := net.SplitHostPort(san); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if strings.Count(san, ":") == 1 {
+		host, port, ok := strings.Cut(san, ":")
+		if ok && host != "" && port != "" {
+			if _, err := net.LookupPort("tcp", port); err == nil {
+				return strings.Trim(host, "[]")
+			}
+		}
+	}
+	return strings.Trim(san, "[]")
 }

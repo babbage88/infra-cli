@@ -69,8 +69,10 @@ func MergeSSHDefaults(req, defaults coredeploy.SSHOptions) coredeploy.SSHOptions
 	if strings.TrimSpace(req.User) == "" {
 		req.User = defaults.User
 	}
-	if strings.TrimSpace(req.KeyPath) == "" {
+	if !hasSSHKeySource(req) {
 		req.KeyPath = defaults.KeyPath
+		req.PrivateKeyPEM = defaults.PrivateKeyPEM
+		req.PrivateKeyBase64 = defaults.PrivateKeyBase64
 	}
 	if strings.TrimSpace(req.Passphrase) == "" {
 		req.Passphrase = defaults.Passphrase
@@ -87,6 +89,12 @@ func MergeSSHDefaults(req, defaults coredeploy.SSHOptions) coredeploy.SSHOptions
 	return req
 }
 
+func hasSSHKeySource(opts coredeploy.SSHOptions) bool {
+	return strings.TrimSpace(opts.KeyPath) != "" ||
+		strings.TrimSpace(opts.PrivateKeyPEM) != "" ||
+		strings.TrimSpace(opts.PrivateKeyBase64) != ""
+}
+
 func InstallProxy(req coredeploy.ProxyInstallRequest) (coredeploy.ProxyInstallResult, error) {
 	req.Name = strings.ToLower(strings.TrimSpace(req.Name))
 	if req.Name == "" {
@@ -98,14 +106,19 @@ func InstallProxy(req coredeploy.ProxyInstallRequest) (coredeploy.ProxyInstallRe
 	if strings.TrimSpace(req.SSH.User) == "" {
 		return coredeploy.ProxyInstallResult{}, fmt.Errorf("ssh.user is required")
 	}
+	sshOpts, cleanupSSHKey, err := PrepareSSHOptions(req.SSH)
+	if err != nil {
+		return coredeploy.ProxyInstallResult{}, err
+	}
+	defer cleanupSSHKey()
 
 	installer, err := deployer.NewRemoteWebProxyInstallerWithSsh(
-		req.SSH.Host,
-		req.SSH.User,
-		req.SSH.KeyPath,
-		req.SSH.Passphrase,
-		req.SSH.UseAgent,
-		req.SSH.Port,
+		sshOpts.Host,
+		sshOpts.User,
+		sshOpts.KeyPath,
+		sshOpts.Passphrase,
+		sshOpts.UseAgent,
+		sshOpts.Port,
 	)
 	if err != nil {
 		return coredeploy.ProxyInstallResult{}, fmt.Errorf("initialize SSH client: %w", err)

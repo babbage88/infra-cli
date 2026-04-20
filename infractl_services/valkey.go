@@ -53,13 +53,19 @@ func InstallValkey(req coredeploy.ValkeyInstallRequest) (coredeploy.ValkeyInstal
 		return coredeploy.ValkeyInstallResult{}, fmt.Errorf("port must be greater than zero")
 	}
 
+	sshOpts, cleanupSSHKey, err := PrepareSSHOptions(req.SSH)
+	if err != nil {
+		return coredeploy.ValkeyInstallResult{}, err
+	}
+	defer cleanupSSHKey()
+
 	installer, err := deployer.NewRemoteValkeyInstallerWithSsh(
-		req.SSH.Host,
-		req.SSH.User,
-		req.SSH.KeyPath,
-		req.SSH.Passphrase,
-		req.SSH.UseAgent,
-		req.SSH.Port,
+		sshOpts.Host,
+		sshOpts.User,
+		sshOpts.KeyPath,
+		sshOpts.Passphrase,
+		sshOpts.UseAgent,
+		sshOpts.Port,
 	)
 	if err != nil {
 		return coredeploy.ValkeyInstallResult{}, fmt.Errorf("initialize SSH client: %w", err)
@@ -71,10 +77,10 @@ func InstallValkey(req coredeploy.ValkeyInstallRequest) (coredeploy.ValkeyInstal
 	}
 
 	return coredeploy.ValkeyInstallResult{
-		Host:     req.SSH.Host,
+		Host:     sshOpts.Host,
 		Port:     req.Port,
 		Username: req.Username,
-		URI:      BuildValkeyURL(req.SSH.Host, req.Port, req.Username, req.Password),
+		URI:      BuildValkeyURL(sshOpts.Host, req.Port, req.Username, req.Password),
 	}, nil
 }
 

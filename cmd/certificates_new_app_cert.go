@@ -67,7 +67,7 @@ func init() {
 	certificatesNewAppCertCmd.Flags().String("app-name", "", "Application certificate name used in output filenames")
 	certificatesNewAppCertCmd.Flags().String("common-name", "localhost", "Application certificate common name")
 	certificatesNewAppCertCmd.Flags().String("organization", "Infractl Development", "Application certificate organization name")
-	certificatesNewAppCertCmd.Flags().StringSlice("san", []string{"localhost", "127.0.0.1", "::1"}, "SAN entries to include in the application certificate")
+	certificatesNewAppCertCmd.Flags().StringSlice("san", []string{"localhost", "127.0.0.1", "::1"}, "SAN hostnames or IPs to include in the application certificate; ports are ignored")
 	certificatesNewAppCertCmd.Flags().Int("years-valid", 2, "Number of years the generated application certificate should remain valid")
 
 	certificatesAppViper.BindPFlag("cert_output_dir", certificatesNewAppCertCmd.Flags().Lookup("output-dir"))

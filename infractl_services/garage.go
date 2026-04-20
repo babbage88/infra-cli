@@ -99,13 +99,19 @@ func CreateGarageToken(req coredeploy.GarageTokenRequest) (coredeploy.GarageToke
 		req.S3Endpoint = fmt.Sprintf("http://%s:3900", req.SSH.Host)
 	}
 
+	sshOpts, cleanupSSHKey, err := PrepareSSHOptions(req.SSH)
+	if err != nil {
+		return coredeploy.GarageTokenResult{}, err
+	}
+	defer cleanupSSHKey()
+
 	installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-		req.SSH.Host,
-		req.SSH.User,
-		req.SSH.KeyPath,
-		req.SSH.Passphrase,
-		req.SSH.UseAgent,
-		req.SSH.Port,
+		sshOpts.Host,
+		sshOpts.User,
+		sshOpts.KeyPath,
+		sshOpts.Passphrase,
+		sshOpts.UseAgent,
+		sshOpts.Port,
 	)
 	if err != nil {
 		return coredeploy.GarageTokenResult{}, fmt.Errorf("initialize SSH client: %w", err)
@@ -131,7 +137,7 @@ func CreateGarageToken(req coredeploy.GarageTokenRequest) (coredeploy.GarageToke
 	}
 
 	return coredeploy.GarageTokenResult{
-		Host:              req.SSH.Host,
+		Host:              sshOpts.Host,
 		S3Endpoint:        req.S3Endpoint,
 		BucketName:        creds.BucketName,
 		KeyName:           creds.KeyName,
@@ -269,13 +275,19 @@ func DeployGarageNode(req coredeploy.GarageNodeRequest) (coredeploy.GarageNodeRe
 		}
 	}
 
+	sshOpts, cleanupSSHKey, err := PrepareSSHOptions(req.SSH)
+	if err != nil {
+		return coredeploy.GarageNodeResult{}, err
+	}
+	defer cleanupSSHKey()
+
 	installer, err := deployer.NewRemoteGarageInstallerWithSsh(
-		req.SSH.Host,
-		req.SSH.User,
-		req.SSH.KeyPath,
-		req.SSH.Passphrase,
-		req.SSH.UseAgent,
-		req.SSH.Port,
+		sshOpts.Host,
+		sshOpts.User,
+		sshOpts.KeyPath,
+		sshOpts.Passphrase,
+		sshOpts.UseAgent,
+		sshOpts.Port,
 	)
 	if err != nil {
 		return coredeploy.GarageNodeResult{}, fmt.Errorf("initialize SSH client: %w", err)
@@ -310,13 +322,13 @@ func DeployGarageNode(req coredeploy.GarageNodeRequest) (coredeploy.GarageNodeRe
 	}
 
 	return coredeploy.GarageNodeResult{
-		Host:          req.SSH.Host,
+		Host:          sshOpts.Host,
 		BinaryPath:    req.BinaryPath,
 		ConfigPath:    req.ConfigPath,
 		ServiceName:   "garage",
 		RPCPublicAddr: req.RPCPublicAddr,
-		S3Endpoint:    fmt.Sprintf("http://%s", garageS3BindAddrToAdvertised(req.SSH.Host, req.S3APIBindAddr)),
-		AdminEndpoint: fmt.Sprintf("http://%s", garageBindAddrToAdvertised(req.SSH.Host, req.AdminAPIBindAddr)),
+		S3Endpoint:    fmt.Sprintf("http://%s", garageS3BindAddrToAdvertised(sshOpts.Host, req.S3APIBindAddr)),
+		AdminEndpoint: fmt.Sprintf("http://%s", garageBindAddrToAdvertised(sshOpts.Host, req.AdminAPIBindAddr)),
 		AdminToken:    req.AdminToken,
 		MetricsToken:  req.MetricsToken,
 	}, nil
