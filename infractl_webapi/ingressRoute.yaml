@@ -17,7 +17,7 @@ spec:
             path: "/"
             backend:
               service:
-                name: db-helper-ui-csvc
+                name: infractl-ui-csvc
                 port:
                   number: 8080
           - pathType: Prefix

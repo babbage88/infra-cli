@@ -5,7 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/deployer"
+	"github.com/babbage88/infra-cli/infractl_services"
+	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -35,28 +36,6 @@ var databaseMariaDBNewCmd = &cobra.Command{
 
 		dbName, dbUser, dbPassword = promptForMissingAppConfig(cmd, dbName, dbUser, dbPassword)
 
-		installer, err := deployer.NewRemoteMariaDBInstallerWithSsh(
-			sshOpts.Host,
-			sshOpts.User,
-			sshOpts.KeyPath,
-			sshOpts.Passphrase,
-			sshOpts.UseAgent,
-			sshOpts.Port,
-		)
-		if err != nil {
-			slog.Error(
-				"Failed to initialize SSH client",
-				"host", sshOpts.Host,
-				"user", sshOpts.User,
-				"port", sshOpts.Port,
-				"ssh_key", sshOpts.KeyPath,
-				"use_ssh_agent", sshOpts.UseAgent,
-				"error", err.Error(),
-			)
-			os.Exit(1)
-		}
-		defer installer.SshClient.Close()
-
 		slog.Info(
 			"Ensuring MariaDB is installed and configured",
 			"host", sshOpts.Host,
@@ -66,7 +45,22 @@ var databaseMariaDBNewCmd = &cobra.Command{
 			"port", mariaDBPort,
 		)
 
-		if err := installer.EnsureInstalledAndConfigured(dbName, dbUser, dbPassword, mariaDBBind, mariaDBPort); err != nil {
+		result, err := infractl_services.InstallMariaDB(coredeploy.MariaDBInstallRequest{
+			SSH: coredeploy.SSHOptions{
+				Host:       sshOpts.Host,
+				User:       sshOpts.User,
+				KeyPath:    sshOpts.KeyPath,
+				Passphrase: sshOpts.Passphrase,
+				UseAgent:   sshOpts.UseAgent,
+				Port:       sshOpts.Port,
+			},
+			DatabaseName: dbName,
+			Username:     dbUser,
+			Password:     dbPassword,
+			Bind:         mariaDBBind,
+			Port:         mariaDBPort,
+		})
+		if err != nil {
 			slog.Error("Failed to configure MariaDB", "error", err.Error())
 			os.Exit(1)
 		}
@@ -80,11 +74,11 @@ var databaseMariaDBNewCmd = &cobra.Command{
 			"port", mariaDBPort,
 		)
 
-		fmt.Printf("MariaDB host: %s\n", sshOpts.Host)
-		fmt.Printf("MariaDB port: %d\n", mariaDBPort)
-		fmt.Printf("MariaDB database: %s\n", dbName)
-		fmt.Printf("MariaDB user: %s\n", dbUser)
-		fmt.Printf("MariaDB URI: %s\n", buildMariaDBURL(sshOpts.Host, mariaDBPort, dbName, dbUser, dbPassword))
+		fmt.Printf("MariaDB host: %s\n", result.Host)
+		fmt.Printf("MariaDB port: %d\n", result.Port)
+		fmt.Printf("MariaDB database: %s\n", result.DatabaseName)
+		fmt.Printf("MariaDB user: %s\n", result.Username)
+		fmt.Printf("MariaDB URI: %s\n", result.URI)
 	},
 }
 
@@ -107,12 +101,5 @@ func init() {
 }
 
 func buildMariaDBURL(host string, port int, dbname, username, password string) string {
-	return fmt.Sprintf(
-		"mysql://%s:%s@%s:%d/%s",
-		urlQueryEscape(username),
-		urlQueryEscape(password),
-		host,
-		port,
-		urlQueryEscape(dbname),
-	)
+	return infractl_services.BuildMariaDBURL(host, port, dbname, username, password)
 }

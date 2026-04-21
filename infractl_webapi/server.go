@@ -33,6 +33,7 @@ func (s *Server) ListenAndServe(addr string) error {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/health", s.healthHandler)
+	s.mux.HandleFunc("POST /api/v1/database/mariadb/install", s.installMariaDBHandler)
 	s.mux.HandleFunc("POST /api/v1/database/valkey/install", s.installValkeyHandler)
 	s.mux.HandleFunc("POST /api/v1/proxy/{name}/install", s.installProxyHandler)
 	s.mux.HandleFunc("POST /api/v1/storage/s3/garage/node", s.deployGarageNodeHandler)

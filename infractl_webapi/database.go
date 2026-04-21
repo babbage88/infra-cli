@@ -31,3 +31,25 @@ func (s *Server) installValkeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, result)
 }
+
+func (s *Server) installMariaDBHandler(w http.ResponseWriter, r *http.Request) {
+	defaultReq := infractl_services.DefaultMariaDBInstallRequest()
+	defaultReq.SSH = s.defaultSSH
+
+	req := coredeploy.MariaDBInstallRequest{}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid JSON request body")
+			return
+		}
+	}
+	req = infractl_services.MergeMariaDBInstallDefaults(req, defaultReq)
+
+	result, err := infractl_services.InstallMariaDB(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
