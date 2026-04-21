@@ -23,8 +23,6 @@ github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-udiff v0.4.1 h1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=
 github.com/aymanbagabas/go-udiff v0.4.1/go.mod h1:0L9PGwj20lrtmEMeyw4WKJ/TMyDtvAoK9bf2u/mNo3w=
-github.com/babbage88/go-acme-cli v1.0.26 h1:A0IvhaMFhXFG0seOuDPt3SeuEyotJijepg5N6AQuSEY=
-github.com/babbage88/go-acme-cli v1.0.26/go.mod h1:U7sLz2iFS2upjA25oJYn3uMGP+v6I7/bEYuW516tAqw=
 github.com/babbage88/goph v1.6.3 h1:ZX2u5KCuN1ayMiT/mJ41FLphnZred9AT9qodpf4xly8=
 github.com/babbage88/goph v1.6.3/go.mod h1:d9wn+R4hXiONo+3GVgxemOjrtJ0wwhpt8rWN8MN8Pvo=
 github.com/babbage88/goph/v2 v2.0.1 h1:fHlZ7WQ1xxSNSks2HnfVpzgKuv6p8XGIvks98wU5tqc=

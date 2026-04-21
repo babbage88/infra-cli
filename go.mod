@@ -7,7 +7,6 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/BurntSushi/toml v1.5.0
-	github.com/babbage88/go-infra v0.0.0
 	github.com/babbage88/goph/v2 v2.0.1
 	github.com/babbage88/infra-core v0.0.0
 	github.com/babbage88/tint v0.0.1
@@ -20,13 +19,10 @@ require (
 	golang.org/x/term v0.36.0
 )
 
-replace github.com/babbage88/go-infra => ../go-infra
-
 replace github.com/babbage88/infra-core => ../infra-core
 
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
-	github.com/babbage88/go-acme-cli v1.0.26 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -61,6 +57,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.94 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/onsi/gomega v1.37.0 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect

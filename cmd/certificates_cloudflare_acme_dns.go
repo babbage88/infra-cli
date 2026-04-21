@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	certrenew "github.com/babbage88/go-infra/webutils/cert_renew"
+	certrenew "github.com/babbage88/infra-core/cert_renew"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
