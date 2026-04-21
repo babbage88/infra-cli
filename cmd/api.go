@@ -22,6 +22,7 @@ var apiServeStartCmd = &cobra.Command{
 		listenAddr, _ := cmd.Flags().GetString("listen-address")
 		if listenAddr == "" {
 			listenAddr = ":8181"
+			slog.Warn("API listen address was empty, using default", "listen_addr", listenAddr)
 		}
 
 		defaultSSH := coredeploy.SSHOptions{
@@ -34,16 +35,30 @@ var apiServeStartCmd = &cobra.Command{
 		}
 		if defaultSSH.Port == 0 {
 			defaultSSH.Port = 22
+			slog.Debug("SSH port was unset, using default", "ssh_port", defaultSSH.Port)
 		}
 		if defaultSSH.User == "" {
 			defaultSSH.User = infraSSH.CurrentUserName()
+			slog.Debug("SSH user was unset, using current user", "ssh_user", defaultSSH.User)
 		}
 
-		slog.Info("Starting infractl API server", slog.String("listen_addr", listenAddr))
+		logger := slog.With(
+			slog.String("listen_addr", listenAddr),
+			slog.String("ssh_host", defaultSSH.Host),
+			slog.String("ssh_user", defaultSSH.User),
+			slog.Uint64("ssh_port", uint64(defaultSSH.Port)),
+			slog.String("ssh_key", defaultSSH.KeyPath),
+			slog.Bool("ssh_use_agent", defaultSSH.UseAgent),
+			slog.Bool("ssh_passphrase_configured", defaultSSH.Passphrase != ""),
+		)
+		logger.Info("Starting infractl API server")
+
 		server := webapi.NewServer(webapi.ServerOptions{DefaultSSH: defaultSSH})
 		if err := server.ListenAndServe(listenAddr); err != nil {
+			logger.Error("Infractl API server stopped with error", "error", err.Error())
 			return fmt.Errorf("serve infractl API: %w", err)
 		}
+		logger.Info("Infractl API server stopped")
 		return nil
 	},
 }
