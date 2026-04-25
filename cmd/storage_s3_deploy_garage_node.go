@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/infractl_services"
 	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -87,7 +86,7 @@ var storageS3DeployGarageNodeCmd = &cobra.Command{
 			"admin_api_bind_addr", garageAdminBindAddr,
 		)
 
-		result, err := infractl_services.DeployGarageNode(req)
+		result, err := coredeploy.DeployGarageNode(req)
 		if err != nil {
 			slog.Error("Failed to configure Garage", "error", err.Error())
 			os.Exit(1)

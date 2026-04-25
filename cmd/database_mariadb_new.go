@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/infractl_services"
 	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -45,7 +44,7 @@ var databaseMariaDBNewCmd = &cobra.Command{
 			"port", mariaDBPort,
 		)
 
-		result, err := infractl_services.InstallMariaDB(coredeploy.MariaDBInstallRequest{
+		result, err := coredeploy.InstallMariaDB(coredeploy.MariaDBInstallRequest{
 			SSH: coredeploy.SSHOptions{
 				Host:       sshOpts.Host,
 				User:       sshOpts.User,
@@ -101,5 +100,5 @@ func init() {
 }
 
 func buildMariaDBURL(host string, port int, dbname, username, password string) string {
-	return infractl_services.BuildMariaDBURL(host, port, dbname, username, password)
+	return coredeploy.BuildMariaDBURL(host, port, dbname, username, password)
 }

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/infractl_services"
 	"github.com/babbage88/infra-cli/tui"
 	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
@@ -50,7 +49,7 @@ var databaseValkeyNewCmd = &cobra.Command{
 			"port", valkeyPort,
 		)
 
-		result, err := infractl_services.InstallValkey(coredeploy.ValkeyInstallRequest{
+		result, err := coredeploy.InstallValkey(coredeploy.ValkeyInstallRequest{
 			SSH: coredeploy.SSHOptions{
 				Host:       sshOpts.Host,
 				User:       sshOpts.User,
@@ -104,5 +103,5 @@ func init() {
 }
 
 func buildValkeyURL(host string, port int, username, password string) string {
-	return infractl_services.BuildValkeyURL(host, port, username, password)
+	return coredeploy.BuildValkeyURL(host, port, username, password)
 }

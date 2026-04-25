@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/infractl_services"
 	"github.com/babbage88/infra-cli/tui"
 	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
@@ -76,11 +75,11 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			},
 			BucketName:         bucketName,
 			KeyName:            keyName,
-			CreateBucket:       infractl_services.BoolPtr(createBucket),
-			AllowCreateBuckets: infractl_services.BoolPtr(allowCreateBuckets),
-			AllowRead:          infractl_services.BoolPtr(allowRead),
-			AllowWrite:         infractl_services.BoolPtr(allowWrite),
-			AllowOwner:         infractl_services.BoolPtr(allowOwner),
+			CreateBucket:       coredeploy.BoolPtr(createBucket),
+			AllowCreateBuckets: coredeploy.BoolPtr(allowCreateBuckets),
+			AllowRead:          coredeploy.BoolPtr(allowRead),
+			AllowWrite:         coredeploy.BoolPtr(allowWrite),
+			AllowOwner:         coredeploy.BoolPtr(allowOwner),
 			BinaryPath:         garageBinaryPath,
 			ConfigPath:         garageConfigPath,
 			S3Endpoint:         garageS3Endpoint,
@@ -97,7 +96,7 @@ var storageS3CreateTokenCmd = &cobra.Command{
 			"allow_create_buckets", allowCreateBuckets,
 		)
 
-		result, err := infractl_services.CreateGarageToken(req)
+		result, err := coredeploy.CreateGarageToken(req)
 		if err != nil {
 			slog.Error("Failed to create Garage S3 credentials", "error", err.Error())
 			os.Exit(1)

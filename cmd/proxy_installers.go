@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/babbage88/infra-cli/infractl_services"
 	coredeploy "github.com/babbage88/infra-core/deployment"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -90,7 +89,7 @@ func registerProxyInstallerCommand(defaults proxyCommandDefaults) {
 				"local_config_path", localConfigPath,
 			)
 
-			result, err := infractl_services.InstallProxy(req)
+			result, err := coredeploy.InstallProxy(req)
 			if err != nil {
 				slog.Error("Failed to configure proxy", "proxy", defaults.Name, "error", err.Error())
 				os.Exit(1)
