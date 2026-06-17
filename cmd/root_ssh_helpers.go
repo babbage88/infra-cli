@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	infraSSH "github.com/babbage88/infra-cli/ssh"
+	"github.com/babbage88/infra-cli/tui"
 )
 
 type rootSSHOptions struct {
@@ -15,6 +16,12 @@ type rootSSHOptions struct {
 	UseAgent   bool
 	Port       uint
 }
+
+var promptForRootSSHHost = func(defaultHost string) string {
+	return strings.TrimSpace(tui.InputWithExample("SSH remote host", "server.example.com", defaultHost))
+}
+
+var tuiIsInteractive = tui.IsInteractive
 
 func resolveRootSSHOptions(defaultHost, defaultUser string) (rootSSHOptions, error) {
 	opts := rootSSHOptions{
@@ -28,6 +35,11 @@ func resolveRootSSHOptions(defaultHost, defaultUser string) (rootSSHOptions, err
 
 	if opts.Host == "" {
 		opts.Host = strings.TrimSpace(defaultHost)
+	}
+	if opts.Host == "" {
+		if tuiIsInteractive() {
+			opts.Host = promptForRootSSHHost(defaultHost)
+		}
 	}
 	if opts.Host == "" {
 		return opts, fmt.Errorf("SSH host is required; set the global --ssh-remote-host flag")
