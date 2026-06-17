@@ -353,7 +353,7 @@ func runRemoteQuotedCommand(sshClient infraSSH.Client, args ...string) ([]byte, 
 		quoted = append(quoted, shellQuote(arg))
 	}
 
-	command := strings.Join(quoted, " ")
+	command := infraSSH.WithDefaultTERM(strings.Join(quoted, " "))
 	out, err := sshClient.Run(command)
 	if err != nil {
 		return nil, formatSSHExecError(err, out)

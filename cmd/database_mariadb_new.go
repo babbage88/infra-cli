@@ -44,7 +44,7 @@ var databaseMariaDBNewCmd = &cobra.Command{
 			"port", mariaDBPort,
 		)
 
-		result, err := coredeploy.InstallMariaDB(coredeploy.MariaDBInstallRequest{
+		req := coredeploy.MariaDBInstallRequest{
 			SSH: coredeploy.SSHOptions{
 				Host:       sshOpts.Host,
 				User:       sshOpts.User,
@@ -58,7 +58,9 @@ var databaseMariaDBNewCmd = &cobra.Command{
 			Password:     dbPassword,
 			Bind:         mariaDBBind,
 			Port:         mariaDBPort,
-		})
+		}
+
+		result, err := runMariaDBInstall(req)
 		if err != nil {
 			slog.Error("Failed to configure MariaDB", "error", err.Error())
 			os.Exit(1)

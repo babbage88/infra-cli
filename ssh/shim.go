@@ -21,6 +21,7 @@ var (
 	CurrentUserName              = coressh.CurrentUserName
 	DefaultPrivateKeyPath        = coressh.DefaultPrivateKeyPath
 	ShellQuote                   = coressh.ShellQuote
+	WithDefaultTERM              = coressh.WithDefaultTERM
 	FormatExecError              = coressh.FormatExecError
 	DiscoverPublicKeyContents    = coressh.DiscoverPublicKeyContents
 	DiscoverPublicKeyOptions     = coressh.DiscoverPublicKeyOptions
