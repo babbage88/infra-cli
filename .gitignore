@@ -1,4 +1,7 @@
-dist/**
+.DS_Store
+internal/.DS_Store
+providers/.DS_Store
+**dist/**
 dist/infractl
 pve.yaml
 setup.sh
