@@ -16,10 +16,11 @@ import (
 )
 
 var (
-	promptLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#2F6F73"))
-	promptHintStyle  = lipgloss.NewStyle().Faint(true)
-	promptErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A33131"))
-	promptHelpStyle  = lipgloss.NewStyle().Faint(true)
+	promptLabelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E6F4F1"))
+	promptExampleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D7E3"))
+	promptHintStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D7E3"))
+	promptErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#A33131"))
+	promptHelpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#B9C7D4"))
 )
 
 // CleanTerminalLogText removes terminal control bytes from command output before
@@ -102,6 +103,7 @@ func stripANSISequences(value string) string {
 
 type inputModel struct {
 	label        string
+	example      string
 	defaultValue string
 	required     bool
 	password     bool
@@ -111,7 +113,7 @@ type inputModel struct {
 	cancel       bool
 }
 
-func newInputModel(label, defaultValue string, required bool, password bool) inputModel {
+func newInputModel(label, example, defaultValue string, required bool, password bool) inputModel {
 	input := textinput.New()
 	input.Prompt = "> "
 	input.Placeholder = defaultValue
@@ -125,6 +127,7 @@ func newInputModel(label, defaultValue string, required bool, password bool) inp
 
 	return inputModel{
 		label:        label,
+		example:      example,
 		defaultValue: defaultValue,
 		required:     required,
 		password:     password,
@@ -165,7 +168,7 @@ func (m inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m inputModel) View() tea.View {
 	var builder strings.Builder
-	builder.WriteString(promptLabelStyle.Render(m.label))
+	builder.WriteString(renderPromptLabel(m.label, m.example))
 	if m.defaultValue != "" {
 		hint := m.defaultValue
 		if m.password {
@@ -417,7 +420,7 @@ func IsInteractive() bool {
 // Input prompts until a non-empty value is provided, unless a default is available.
 func Input(label, defaultValue string) string {
 	if IsInteractive() {
-		if value, ok := runInput(label, defaultValue, true, false); ok {
+		if value, ok := runInput(label, "", defaultValue, true, false); ok {
 			return value
 		}
 	}
@@ -426,13 +429,18 @@ func Input(label, defaultValue string) string {
 
 // InputWithExample is Input with an inline example in the label.
 func InputWithExample(label, example, defaultValue string) string {
-	return Input(labelWithExample(label, example), defaultValue)
+	if IsInteractive() {
+		if value, ok := runInput(label, example, defaultValue, true, false); ok {
+			return value
+		}
+	}
+	return inputPlain(labelWithExample(label, example), defaultValue, true)
 }
 
 // OptionalInput prompts once and permits an empty value.
 func OptionalInput(label, defaultValue string) string {
 	if IsInteractive() {
-		if value, ok := runInput(label, defaultValue, false, false); ok {
+		if value, ok := runInput(label, "", defaultValue, false, false); ok {
 			return value
 		}
 	}
@@ -442,7 +450,7 @@ func OptionalInput(label, defaultValue string) string {
 // Password prompts for masked input until a value is provided, unless a default is available.
 func Password(label, defaultValue string) string {
 	if IsInteractive() {
-		if value, ok := runInput(label, defaultValue, true, true); ok {
+		if value, ok := runInput(label, "", defaultValue, true, true); ok {
 			return value
 		}
 	}
@@ -451,7 +459,12 @@ func Password(label, defaultValue string) string {
 
 // PasswordWithExample is Password with an inline example in the label.
 func PasswordWithExample(label, example, defaultValue string) string {
-	return Password(labelWithExample(label, example), defaultValue)
+	if IsInteractive() {
+		if value, ok := runInput(label, example, defaultValue, true, true); ok {
+			return value
+		}
+	}
+	return inputPlain(labelWithExample(label, example), defaultValue, true)
 }
 
 // TextArea prompts for a multi-line value.
@@ -501,8 +514,8 @@ func SelectOption(label string, options []string, defaultValue string) string {
 	return selectOptionPlain(label, options, defaultValue)
 }
 
-func runInput(label, defaultValue string, required bool, password bool) (string, bool) {
-	model := newInputModel(label, defaultValue, required, password)
+func runInput(label, example, defaultValue string, required bool, password bool) (string, bool) {
+	model := newInputModel(label, example, defaultValue, required, password)
 	result, err := tea.NewProgram(model).Run()
 	if err != nil {
 		return "", false
@@ -669,4 +682,12 @@ func labelWithExample(label, example string) string {
 		return label
 	}
 	return fmt.Sprintf("%s (example: %s)", label, example)
+}
+
+func renderPromptLabel(label, example string) string {
+	rendered := promptLabelStyle.Render(label)
+	if strings.TrimSpace(example) == "" {
+		return rendered
+	}
+	return rendered + " " + promptExampleStyle.Render("(example: "+example+")")
 }
