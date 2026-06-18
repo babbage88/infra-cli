@@ -692,12 +692,15 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg pro
 	effectivePrivs, effectivePrivErr := listProxmoxTokenEffectivePrivilegesOverSSH(sshClient, createdToken.FullTokenID)
 	assignedPrivs = dedupeAndSortStrings(append(assignedPrivs, effectivePrivs...))
 
-	hostURL := strings.TrimSpace(rootViperCfg.GetString("proxmox_api_url"))
-	if hostURL == "" {
+	hostURL := defaultProxmoxHostURL(cfg.PveNode)
+	if hostURL == "" && rootViperCfg != nil {
+		hostURL = strings.TrimSpace(rootViperCfg.GetString("proxmox_api_url"))
+	}
+	if hostURL == "" && rootViperCfg != nil {
 		hostURL = strings.TrimSpace(rootViperCfg.GetString("proxmox_host"))
 	}
 	if hostURL == "" {
-		hostURL = defaultProxmoxHostURL(cfg.PveNode)
+		return nil, fmt.Errorf("determine proxmox API URL for verification: no node-derived or configured host URL available")
 	}
 
 	tokenID, secret, err := proxmox.ParseAPIToken(fmt.Sprintf("%s=%s", createdToken.FullTokenID, createdToken.Secret))
@@ -713,6 +716,7 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg pro
 		AssignedRoles:      assignedRoles,
 		AssignedPrivileges: assignedPrivs,
 	}
+	verification.DirectChecks = append(verification.DirectChecks, fmt.Sprintf("verification API URL %s", hostURL))
 	if effectivePrivErr != nil {
 		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("effective token privilege lookup over SSH failed: %v", effectivePrivErr))
 	} else if len(effectivePrivs) > 0 {
@@ -781,15 +785,19 @@ func listProxmoxTokenEffectivePrivilegesOverSSH(sshClient infraSSH.Client, token
 	if strings.TrimSpace(tokenFullID) == "" {
 		return nil, fmt.Errorf("token ID is required")
 	}
+	userID, tokenID, ok := strings.Cut(strings.TrimSpace(tokenFullID), "!")
+	if !ok || strings.TrimSpace(userID) == "" || strings.TrimSpace(tokenID) == "" {
+		return nil, fmt.Errorf("invalid full token ID %q; expected user@realm!tokenid", tokenFullID)
+	}
 
-	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", tokenFullID, "--output-format", "json")
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", userID, tokenID, "--output-format", "json")
 	if err == nil {
 		if privs := extractPrivilegesFromArbitraryOutput(string(out)); len(privs) > 0 {
 			return privs, nil
 		}
 	}
 
-	out, fallbackErr := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", tokenFullID)
+	out, fallbackErr := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", userID, tokenID)
 	if fallbackErr != nil {
 		if err != nil {
 			return nil, fmt.Errorf("json mode: %w; plain mode: %w", err, fallbackErr)

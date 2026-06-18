@@ -156,3 +156,31 @@ func TestExtractPrivilegesFromArbitraryOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestListProxmoxTokenEffectivePrivilegesOverSSHUsesSeparateUserAndTokenArgs(t *testing.T) {
+	client := &fakeProxmoxSSHClient{
+		outputs: [][]byte{
+			[]byte(`{"data":{"permissions":["VM.Allocate","VM.Config.CPU"]}}`),
+		},
+	}
+
+	privs, err := listProxmoxTokenEffectivePrivilegesOverSSH(client, "infractl@pve!infractl-cli")
+	if err != nil {
+		t.Fatalf("listProxmoxTokenEffectivePrivilegesOverSSH returned error: %v", err)
+	}
+
+	wantCommand := `TERM="${TERM:-dumb}" 'pveum' 'user' 'token' 'permissions' 'infractl@pve' 'infractl-cli' '--output-format' 'json'`
+	if client.command != wantCommand {
+		t.Fatalf("unexpected command:\nwant: %s\ngot:  %s", wantCommand, client.command)
+	}
+
+	wantPrivs := []string{"VM.Allocate", "VM.Config.CPU"}
+	if len(privs) != len(wantPrivs) {
+		t.Fatalf("unexpected privileges: got %v want %v", privs, wantPrivs)
+	}
+	for i := range wantPrivs {
+		if privs[i] != wantPrivs[i] {
+			t.Fatalf("unexpected privileges: got %v want %v", privs, wantPrivs)
+		}
+	}
+}
