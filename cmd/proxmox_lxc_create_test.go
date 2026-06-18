@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/babbage88/infra-cli/proxmox"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func TestRenderLxcSSHForceCommandEntriesDoesNotEmitRawCarriageReturns(t *testing.T) {
@@ -69,6 +71,37 @@ func TestPrintLxcCreateConnectionInfoUsesAdminUserForSSH(t *testing.T) {
 	}
 	if strings.Contains(output, "SSH: ssh root@10.0.1.39") {
 		t.Fatalf("connection info still printed root SSH instruction: %q", output)
+	}
+}
+
+func TestResolveProxmoxAPIHostForNodePrefersDerivedNodeURLOverRootDefault(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("host-url", "", "")
+
+	vp := viper.New()
+	vp.Set("host_url", "https://proxmox3:8006")
+
+	got := resolveProxmoxAPIHostForNode(cmd, vp, "proxmox1", "https://proxmox3:8006")
+	want := "https://proxmox1:8006"
+
+	if got != want {
+		t.Fatalf("resolveProxmoxAPIHostForNode() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveProxmoxAPIHostForNodeKeepsExplicitHostURL(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("host-url", "", "")
+	if err := cmd.Flags().Set("host-url", "https://proxmox3:8006"); err != nil {
+		t.Fatalf("set host-url flag: %v", err)
+	}
+
+	vp := viper.New()
+	got := resolveProxmoxAPIHostForNode(cmd, vp, "proxmox1", "https://proxmox3:8006")
+	want := "https://proxmox3:8006"
+
+	if got != want {
+		t.Fatalf("resolveProxmoxAPIHostForNode() = %q, want %q", got, want)
 	}
 }
 

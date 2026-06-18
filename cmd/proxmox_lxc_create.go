@@ -84,6 +84,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 		newLxcRequest.Start = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "start"))
 		newLxcRequest.Console = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "console"))
 		newLxcRequest.Unprivileged = boolToProxmoxFlag(lxcCreateBoolValue(cmd, localViper, "unprivileged"))
+		proxmoxLxcAuth.Host = resolveProxmoxAPIHostForNode(cmd, localViper, newLxcRequest.Node, proxmoxLxcAuth.Host)
 
 		resultInfo := lxcCreateResultInfo{}
 		if err := promptForMissingLxcCreateBasics(cmd, localViper, &proxmoxLxcAuth, &newLxcRequest, &resultInfo); err != nil {
@@ -249,6 +250,22 @@ func applyRootProxmoxDefaults(vp *viper.Viper) {
 			vp.Set("api_token", fmt.Sprintf("%s=%s", rootToken, rootSecret))
 		}
 	}
+}
+
+func resolveProxmoxAPIHostForNode(cmd *cobra.Command, vp *viper.Viper, node string, currentHost string) string {
+	if strings.TrimSpace(currentHost) == "" {
+		return defaultProxmoxHostURL(node)
+	}
+	if cmd != nil && cmd.Flags().Changed("host-url") {
+		return currentHost
+	}
+	if vp != nil && vp.InConfig("host_url") {
+		return currentHost
+	}
+	if derived := defaultProxmoxHostURL(node); strings.TrimSpace(derived) != "" {
+		return derived
+	}
+	return currentHost
 }
 
 func resolveLxcCreateNesting(cmd *cobra.Command, vp *viper.Viper) bool {
