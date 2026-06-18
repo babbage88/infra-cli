@@ -110,7 +110,7 @@ var proxmoxLxcCreateCmd = &cobra.Command{
 			if nestingEnabled && errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
 				return fmt.Errorf("create container with nesting enabled: %w. Proxmox only allows LXC nesting to be set for unprivileged containers by a principal with VM.Allocate on the container path; privileged containers or other feature flags may require root@pam/SuperUser", err)
 			}
-			return fmt.Errorf("create container: %w", err)
+			return explainLxcCreateError(proxmoxLxcAuth.Host, newLxcRequest.Node, err)
 		}
 		fmt.Println("Container creation request sent successfully.")
 		forceSSH := lxcCreateBoolValue(cmd, localViper, "ssh_force")
@@ -602,7 +602,7 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 	seen := make(map[string]struct{})
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" || !strings.Contains(line, ":vztmpl/") {
 			continue
 		}
 		if _, ok := seen[line]; ok {
@@ -613,6 +613,24 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 	}
 
 	return templates, nil
+}
+
+func explainLxcCreateError(hostURL, node string, err error) error {
+	var apiErr *proxmox.APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+		hostURL = strings.TrimSpace(hostURL)
+		if hostURL == "" {
+			hostURL = defaultProxmoxHostURL(node)
+		}
+		return fmt.Errorf(
+			"create container on node %s via %s was rejected by the Proxmox API with 401 Unauthorized. This usually means the API token/secret being used for HTTPS requests does not match that Proxmox host, the token was created on a different Proxmox node or cluster endpoint, or the configured host URL is still wrong. Original error: %w",
+			node,
+			hostURL,
+			err,
+		)
+	}
+
+	return fmt.Errorf("create container: %w", err)
 }
 
 func promptForLxcSSHPublicKeys() []string {

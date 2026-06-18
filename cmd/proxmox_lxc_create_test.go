@@ -105,6 +105,44 @@ func TestResolveProxmoxAPIHostForNodeKeepsExplicitHostURL(t *testing.T) {
 	}
 }
 
+func TestExplainLxcCreateErrorAdds401Hint(t *testing.T) {
+	err := explainLxcCreateError("https://proxmox1:8006", "proxmox1", &proxmox.APIError{Status: 401})
+	got := err.Error()
+
+	if !strings.Contains(got, "401 Unauthorized") {
+		t.Fatalf("expected 401 hint in error: %q", got)
+	}
+	if !strings.Contains(got, "https://proxmox1:8006") {
+		t.Fatalf("expected host URL in error: %q", got)
+	}
+	if !strings.Contains(got, "token/secret") {
+		t.Fatalf("expected actionable auth hint in error: %q", got)
+	}
+}
+
+func TestFallbackTemplateParsingSkipsNoiseLines(t *testing.T) {
+	output := "tput: No value for $TERM and no -T specified\npbs1: error fetching datastores - 500 Can't connect\nlocal:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst\n"
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	templates := make([]string, 0, len(lines))
+	seen := make(map[string]struct{})
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, ":vztmpl/") {
+			continue
+		}
+		if _, ok := seen[line]; ok {
+			continue
+		}
+		seen[line] = struct{}{}
+		templates = append(templates, line)
+	}
+
+	if len(templates) != 1 || templates[0] != "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst" {
+		t.Fatalf("unexpected templates parsed from noisy output: %v", templates)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 

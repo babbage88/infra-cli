@@ -48,7 +48,12 @@ var proxmoxNewAPITokenCmd = &cobra.Command{
 		}
 		printProxmoxTokenVerification(verification)
 
-		if cfg.WriteDefaultConfig {
+		shouldWriteDefaultConfig := cfg.WriteDefaultConfig
+		if !cmd.Flags().Changed("write-default-config") {
+			shouldWriteDefaultConfig = tui.YesNo("Write this new Proxmox API token to your default infractl config for future commands?", true)
+		}
+
+		if shouldWriteDefaultConfig {
 			encodedTokenID := base64.StdEncoding.EncodeToString([]byte(createdToken.FullTokenID))
 			encodedSecret := base64.StdEncoding.EncodeToString([]byte(createdToken.Secret))
 			targetPath, err := writeDefaultRootConfigValues(map[string]string{
