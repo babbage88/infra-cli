@@ -574,7 +574,8 @@ func listAvailableLxcTemplatesOverSSH(node string) ([]string, error) {
 	defer sshClient.Close()
 
 	script := `pvesm status --enabled 1 | awk 'NR>1 {print $1}' | while read -r storage; do pvesm list "$storage" 2>/dev/null | awk 'NR>1 && $1 ~ /:vztmpl\// {print $1}'; done`
-	output, err := sshClient.Run("sh -c " + shellQuote(script))
+	command := infraSSH.WithDefaultTERM("sh -c " + shellQuote(script))
+	output, err := sshClient.Run(command)
 	if err != nil {
 		return nil, formatSSHExecError(err, output)
 	}

@@ -265,16 +265,46 @@ func assignRoleToProxmoxPrincipalOverSSH(sshClient infraSSH.Client, aclPath, pri
 func proxmoxUserExistsOverSSH(sshClient infraSSH.Client, userID string) (bool, error) {
 	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "list", "--output-format", "json")
 	if err != nil {
-		return false, err
+		return proxmoxUserExistsFallbackOverSSH(sshClient, userID)
 	}
 
 	var payload []map[string]any
 	if err := json.Unmarshal(out, &payload); err != nil {
-		return false, fmt.Errorf("parse proxmox user list JSON: %w", err)
+		trimmed := strings.TrimSpace(string(out))
+		if jsonPayload := extractJSONArrayFromOutput(trimmed); jsonPayload != "" {
+			if err := json.Unmarshal([]byte(jsonPayload), &payload); err == nil {
+				for _, item := range payload {
+					if strings.TrimSpace(fmt.Sprintf("%v", item["userid"])) == userID {
+						return true, nil
+					}
+				}
+				return false, nil
+			}
+		}
+		return proxmoxUserExistsFallbackOverSSH(sshClient, userID)
 	}
 
 	for _, item := range payload {
 		if strings.TrimSpace(fmt.Sprintf("%v", item["userid"])) == userID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func proxmoxUserExistsFallbackOverSSH(sshClient infraSSH.Client, userID string) (bool, error) {
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "list")
+	if err != nil {
+		return false, err
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 || fields[0] == "userid" {
+			continue
+		}
+		if fields[0] == userID {
 			return true, nil
 		}
 	}
@@ -428,6 +458,15 @@ func parseCreatedProxmoxToken(userID, tokenID string, out []byte) (proxmoxCreate
 func extractJSONObjectFromOutput(output string) string {
 	start := strings.Index(output, "{")
 	end := strings.LastIndex(output, "}")
+	if start == -1 || end == -1 || end < start {
+		return ""
+	}
+	return strings.TrimSpace(output[start : end+1])
+}
+
+func extractJSONArrayFromOutput(output string) string {
+	start := strings.Index(output, "[")
+	end := strings.LastIndex(output, "]")
 	if start == -1 || end == -1 || end < start {
 		return ""
 	}
