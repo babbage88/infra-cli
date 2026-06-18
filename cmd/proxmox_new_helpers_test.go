@@ -6,14 +6,16 @@ import (
 )
 
 type fakeProxmoxSSHClient struct {
-	command string
-	outputs [][]byte
-	errs    []error
-	calls   int
+	command  string
+	commands []string
+	outputs  [][]byte
+	errs     []error
+	calls    int
 }
 
 func (f *fakeProxmoxSSHClient) Run(cmd string) ([]byte, error) {
 	f.command = cmd
+	f.commands = append(f.commands, cmd)
 	if f.calls < len(f.outputs) || f.calls < len(f.errs) {
 		var out []byte
 		if f.calls < len(f.outputs) {
@@ -102,5 +104,31 @@ func TestProxmoxUserExistsOverSSHFallsBackAfterJSONCommandError(t *testing.T) {
 	}
 	if !exists {
 		t.Fatalf("expected proxmox user to be detected after fallback from command error")
+	}
+}
+
+func TestAssignRoleToProxmoxPrincipalOverSSHAddsPropagationForUser(t *testing.T) {
+	client := &fakeProxmoxSSHClient{}
+
+	if err := assignRoleToProxmoxPrincipalOverSSH(client, "/", "user", "infractl@pve", infraCtlManagerRoleName); err != nil {
+		t.Fatalf("assignRoleToProxmoxPrincipalOverSSH returned error: %v", err)
+	}
+
+	want := `TERM="${TERM:-dumb}" 'pveum' 'aclmod' '/' '-role' 'InfraCtlProxmoxManager' '-propagate' '1' '-user' 'infractl@pve'`
+	if client.command != want {
+		t.Fatalf("unexpected command:\nwant: %s\ngot:  %s", want, client.command)
+	}
+}
+
+func TestAssignRoleToProxmoxPrincipalOverSSHAddsPropagationForToken(t *testing.T) {
+	client := &fakeProxmoxSSHClient{}
+
+	if err := assignRoleToProxmoxPrincipalOverSSH(client, "/", "token", "infractl@pve!infractl-cli", infraCtlManagerRoleName); err != nil {
+		t.Fatalf("assignRoleToProxmoxPrincipalOverSSH returned error: %v", err)
+	}
+
+	want := `TERM="${TERM:-dumb}" 'pveum' 'aclmod' '/' '-role' 'InfraCtlProxmoxManager' '-propagate' '1' '-token' 'infractl@pve!infractl-cli'`
+	if client.command != want {
+		t.Fatalf("unexpected command:\nwant: %s\ngot:  %s", want, client.command)
 	}
 }

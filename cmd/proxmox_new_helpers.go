@@ -135,6 +135,13 @@ func createProxmoxAPITokenOverSSH(sshClient infraSSH.Client, cfg proxmoxNewToken
 	if err != nil {
 		return proxmoxCreatedToken{}, err
 	}
+	effectiveRoleName := strings.TrimSpace(tokenRoleName)
+	if effectiveRoleName == "" {
+		effectiveRoleName = strings.TrimSpace(userRoleName)
+	}
+	if effectiveRoleName == "" {
+		effectiveRoleName = strings.TrimSpace(cfg.Role)
+	}
 
 	if userRoleName != "" {
 		if err := assignRoleToProxmoxPrincipalOverSSH(sshClient, cfg.ACLPath, "user", cfg.UserID, userRoleName); err != nil {
@@ -169,8 +176,8 @@ func createProxmoxAPITokenOverSSH(sshClient infraSSH.Client, cfg proxmoxNewToken
 		return proxmoxCreatedToken{}, err
 	}
 
-	if tokenRoleName != "" {
-		if err := assignRoleToProxmoxPrincipalOverSSH(sshClient, cfg.ACLPath, "token", createdToken.FullTokenID, tokenRoleName); err != nil {
+	if effectiveRoleName != "" {
+		if err := assignRoleToProxmoxPrincipalOverSSH(sshClient, cfg.ACLPath, "token", createdToken.FullTokenID, effectiveRoleName); err != nil {
 			return proxmoxCreatedToken{}, fmt.Errorf("apply ACL for token %s on %s: %w", createdToken.FullTokenID, cfg.ACLPath, err)
 		}
 	}
@@ -251,7 +258,7 @@ func discoverAllAvailablePrivilegesOverSSH(sshClient infraSSH.Client) ([]string,
 }
 
 func assignRoleToProxmoxPrincipalOverSSH(sshClient infraSSH.Client, aclPath, principalKind, principalID, roleName string) error {
-	args := []string{"pveum", "aclmod", aclPath, "-role", roleName}
+	args := []string{"pveum", "aclmod", aclPath, "-role", roleName, "-propagate", "1"}
 	switch principalKind {
 	case "token":
 		args = append(args, "-token", principalID)
