@@ -140,3 +140,19 @@ func TestIsProxmoxTokenAlreadyExistsError(t *testing.T) {
 		t.Fatalf("expected token already exists error to be detected")
 	}
 }
+
+func TestExtractPrivilegesFromArbitraryOutput(t *testing.T) {
+	output := `{"data":{"permissions":["VM.Allocate","VM.Config.CPU","Datastore.Audit"],"path":"/"}}`
+
+	got := extractPrivilegesFromArbitraryOutput(output)
+	want := []string{"Datastore.Audit", "VM.Allocate", "VM.Config.CPU"}
+
+	if len(got) != len(want) {
+		t.Fatalf("unexpected privilege count: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected privileges: got %v want %v", got, want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/babbage88/infra-cli/proxmox"
 	infraSSH "github.com/babbage88/infra-cli/ssh"
@@ -688,6 +689,8 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg pro
 	if err != nil {
 		return nil, fmt.Errorf("inspect assigned ACLs and roles: %w", err)
 	}
+	effectivePrivs, effectivePrivErr := listProxmoxTokenEffectivePrivilegesOverSSH(sshClient, createdToken.FullTokenID)
+	assignedPrivs = dedupeAndSortStrings(append(assignedPrivs, effectivePrivs...))
 
 	hostURL := strings.TrimSpace(rootViperCfg.GetString("proxmox_api_url"))
 	if hostURL == "" {
@@ -709,6 +712,13 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg pro
 	verification := &proxmoxTokenVerification{
 		AssignedRoles:      assignedRoles,
 		AssignedPrivileges: assignedPrivs,
+	}
+	if effectivePrivErr != nil {
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("effective token privilege lookup over SSH failed: %v", effectivePrivErr))
+	} else if len(effectivePrivs) > 0 {
+		verification.DirectChecks = append(verification.DirectChecks, fmt.Sprintf("effective token privilege lookup (%d privileges)", len(effectivePrivs)))
+	} else {
+		verification.MissingCapabilities = append(verification.MissingCapabilities, fmt.Sprintf("token %s reported no effective Proxmox privileges over SSH; ACL assignment may not have applied", createdToken.FullTokenID))
 	}
 	if strings.TrimSpace(cfg.ACLPath) != "" && strings.TrimSpace(cfg.ACLPath) != "/" {
 		verification.MissingCapabilities = append(
@@ -767,6 +777,29 @@ func verifyProxmoxTokenCoversInfraCtlCommands(sshClient infraSSH.Client, cfg pro
 	return verification, nil
 }
 
+func listProxmoxTokenEffectivePrivilegesOverSSH(sshClient infraSSH.Client, tokenFullID string) ([]string, error) {
+	if strings.TrimSpace(tokenFullID) == "" {
+		return nil, fmt.Errorf("token ID is required")
+	}
+
+	out, err := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", tokenFullID, "--output-format", "json")
+	if err == nil {
+		if privs := extractPrivilegesFromArbitraryOutput(string(out)); len(privs) > 0 {
+			return privs, nil
+		}
+	}
+
+	out, fallbackErr := runRemoteQuotedCommand(sshClient, "pveum", "user", "token", "permissions", tokenFullID)
+	if fallbackErr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("json mode: %w; plain mode: %w", err, fallbackErr)
+		}
+		return nil, fallbackErr
+	}
+
+	return extractPrivilegesFromArbitraryOutput(string(out)), nil
+}
+
 func splitPrivilegeString(value string) []string {
 	value = strings.ReplaceAll(strings.TrimSpace(value), ",", " ")
 	fields := strings.Fields(value)
@@ -776,6 +809,21 @@ func splitPrivilegeString(value string) []string {
 			filtered = append(filtered, field)
 		}
 	}
+	return dedupeAndSortStrings(filtered)
+}
+
+func extractPrivilegesFromArbitraryOutput(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.')
+	})
+
+	filtered := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if isLikelyProxmoxPrivilege(field) {
+			filtered = append(filtered, field)
+		}
+	}
+
 	return dedupeAndSortStrings(filtered)
 }
 
