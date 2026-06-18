@@ -132,3 +132,11 @@ func TestAssignRoleToProxmoxPrincipalOverSSHAddsPropagationForToken(t *testing.T
 		t.Fatalf("unexpected command:\nwant: %s\ngot:  %s", want, client.command)
 	}
 }
+
+func TestIsProxmoxTokenAlreadyExistsError(t *testing.T) {
+	err := errors.New("create API token infractl-cli for infractl@pve: SSH execution failed: process exited with status 255: 400 Parameter verification failed.\ntokenid: Token already exists.")
+
+	if !isProxmoxTokenAlreadyExistsError(err) {
+		t.Fatalf("expected token already exists error to be detected")
+	}
+}

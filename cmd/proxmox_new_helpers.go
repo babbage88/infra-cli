@@ -168,6 +168,26 @@ func createProxmoxAPITokenOverSSH(sshClient infraSSH.Client, cfg proxmoxNewToken
 
 	out, err := runRemoteQuotedCommand(sshClient, tokenArgs...)
 	if err != nil {
+		if isProxmoxTokenAlreadyExistsError(err) {
+			fullTokenID := fmt.Sprintf("%s!%s", cfg.UserID, cfg.TokenID)
+			if cfg.Force {
+				if err := deleteProxmoxAPITokenOverSSH(sshClient, cfg.UserID, cfg.TokenID); err != nil {
+					return proxmoxCreatedToken{}, fmt.Errorf("delete existing API token %s after create reported it already exists: %w", fullTokenID, err)
+				}
+				cfgCopy := cfg
+				return createProxmoxAPITokenOverSSH(sshClient, cfgCopy)
+			}
+			if !tui.YesNo(fmt.Sprintf("API token %s already exists. Delete and recreate it now?", fullTokenID), false) {
+				fmt.Printf("Skipped recreating Proxmox API token %s.\n", fullTokenID)
+				return proxmoxCreatedToken{}, nil
+			}
+			if err := deleteProxmoxAPITokenOverSSH(sshClient, cfg.UserID, cfg.TokenID); err != nil {
+				return proxmoxCreatedToken{}, fmt.Errorf("delete existing API token %s: %w", fullTokenID, err)
+			}
+			cfgCopy := cfg
+			cfgCopy.Force = true
+			return createProxmoxAPITokenOverSSH(sshClient, cfgCopy)
+		}
 		return proxmoxCreatedToken{}, fmt.Errorf("create API token %s for %s: %w", cfg.TokenID, cfg.UserID, err)
 	}
 
@@ -478,6 +498,15 @@ func extractJSONArrayFromOutput(output string) string {
 		return ""
 	}
 	return strings.TrimSpace(output[start : end+1])
+}
+
+func isProxmoxTokenAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "token already exists") ||
+		(strings.Contains(lower, "already exists") && strings.Contains(lower, "tokenid"))
 }
 
 func listProxmoxRolesOverSSH(sshClient infraSSH.Client) ([]proxmoxRoleInfo, error) {
